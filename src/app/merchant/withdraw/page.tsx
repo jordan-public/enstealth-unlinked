@@ -134,7 +134,17 @@ export default function WithdrawPage() {
         setPayments(nonZero);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to scan for payments');
+      const message = String(err?.message || '');
+      const isRpcOrNetworkError =
+        message.includes('Failed to fetch') ||
+        message.includes('HTTP request failed') ||
+        message.includes('eth_blockNumber');
+
+      if (isRpcOrNetworkError) {
+        setError('No payments received.');
+      } else {
+        setError(err.message || 'Failed to scan for payments');
+      }
     } finally {
       setScanning(false);
     }
