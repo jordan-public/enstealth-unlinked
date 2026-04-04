@@ -1,7 +1,7 @@
 import { createPublicClient, http, parseAbi } from 'viem';
 import { sepolia } from 'viem/chains';
 import { CONTRACTS } from './config';
-import { STEALTH_PAYMENT_ABI } from './abi';
+import { STEALTH_PAYMENT_ABI, ENS_REGISTRAR_ABI } from './abi';
 
 /**
  * Create a public client for reading blockchain data
@@ -100,21 +100,38 @@ export function getEtherscanTxUrl(hash: string, chainId: number = 11155111): str
 }
 
 /**
- * Mock ENS resolution (replace with real ENS in production)
+ * Resolve ENS keys from the registrar contract
  */
 export async function resolveENSKeys(name: string): Promise<{
   spendPublicKey: string;
   viewPublicKey: string;
 } | null> {
-  // In production, fetch from ENS text records
-  // For now, return mock data or null
-  
-  // Example integration with ENS:
-  // const client = getPublicClient();
-  // const resolver = await client.getEnsResolver({ name });
-  // const spendKey = await client.getEnsText({ name, key: 'stealth:spend' });
-  // const viewKey = await client.getEnsText({ name, key: 'stealth:view' });
-  
-  console.warn('Mock ENS resolution - integrate real ENS in production');
-  return null;
+  try {
+    const client = getPublicClient();
+    
+    // Remove .enstealth.eth suffix if present
+    const label = name.replace('.enstealth.eth', '');
+    
+    // Call the registrar contract
+    const result = await client.readContract({
+      address: CONTRACTS.ENS_REGISTRAR as `0x${string}`,
+      abi: ENS_REGISTRAR_ABI,
+      functionName: 'getPublicKeys',
+      args: [label],
+    }) as [string, string];
+    
+    const [spendKey, viewKey] = result;
+    
+    if (!spendKey || !viewKey) {
+      return null;
+    }
+    
+    return {
+      spendPublicKey: spendKey,
+      viewPublicKey: viewKey,
+    };
+  } catch (error) {
+    console.error('Error resolving ENS keys:', error);
+    return null;
+  }
 }
