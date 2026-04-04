@@ -1,0 +1,106 @@
+# ENStealth Unlinked
+
+Privacy-focused payment system combining ENS, stealth addresses, WalletConnect, and Unlink.
+
+## Features
+
+- **Stealth Addresses**: Hide payment destinations using cryptographic stealth addresses
+- **ENS Integration**: Store stealth address keys in ENS records
+- **WalletConnect**: Accept payments via WalletConnect
+- **Unlink**: Private sender payments to hide transaction origin
+- **Merchant Tools**: Create stealth recipients and withdraw funds
+
+## Architecture
+
+- **Smart Contracts**: Foundry-based Solidity contracts
+- **Frontend**: Next.js with TypeScript
+- **Crypto**: Off-chain elliptic curve cryptography for stealth addresses
+
+## Quick Start
+
+### 1. Install Dependencies
+
+```bash
+# Install Foundry
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+
+# Install Node dependencies
+npm install
+```
+
+### 2. Build Contracts
+
+```bash
+forge build
+```
+
+### 3. Run Tests
+
+```bash
+forge test
+```
+
+### 4. Deploy Contracts
+
+```bash
+# Set up .env file first
+cp .env.example .env
+# Edit .env with your values
+
+# Deploy to Sepolia
+npm run contract:deploy
+```
+
+### 5. Run Frontend
+
+```bash
+npm run dev
+```
+
+Visit `http://localhost:3000`
+
+## Project Structure
+
+```
+├── contracts/          # Solidity smart contracts
+├── script/            # Deployment scripts
+├── test/              # Contract tests
+├── src/               # Next.js frontend
+│   ├── app/          # App router pages
+│   ├── components/   # React components
+│   └── lib/          # Utilities and crypto
+└── public/           # Static assets
+```
+
+## How It Works
+
+### Stealth Address Generation
+
+1. Merchant generates spend key (x) and view key (y)
+2. Public keys P_spend and P_view stored in ENS
+3. Sender derives stealth address: P_stealth = P_spend + H(r·P_view)·G
+4. Payment sent to stealth address with ephemeral key R published
+
+### Payment Flow
+
+**Option 1: WalletConnect**
+- User connects wallet
+- Sends payment to stealth address via smart contract
+- Event emitted with ephemeral key R
+
+**Option 2: Unlink**
+- Private transaction hides sender
+- Payment to stealth address
+- Optional announcement via contract
+
+### Withdrawal
+
+1. Merchant scans events for ephemeral keys R
+2. Derives stealth addresses using view key
+3. Computes private keys for addresses with funds
+4. Withdraws funds
+
+## License
+
+MIT
