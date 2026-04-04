@@ -1,10 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAccount, usePublicClient, useConnect } from 'wagmi';
+import { usePublicClient } from 'wagmi';
 import { scanStealthPayments } from '@/lib/crypto';
 import { CONTRACTS, ENS_SUFFIX } from '@/lib/config';
-import { formatEther, keccak256, parseAbiItem, stringToHex } from 'viem';
+import {
+  createWalletClient,
+  formatEther,
+  http,
+  isAddress,
+  keccak256,
+  parseAbiItem,
+  stringToHex,
+} from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { sepolia } from 'viem/chains';
 
 interface StealthPayment {
   address: string;
@@ -17,17 +27,17 @@ interface StealthPayment {
 }
 
 export default function WithdrawPage() {
-  const { isConnected } = useAccount();
   const publicClient = usePublicClient();
-  const { connect, connectors } = useConnect();
   const [mounted, setMounted] = useState(false);
   const [spendPrivateKey, setSpendPrivateKey] = useState('');
   const [viewPrivateKey, setViewPrivateKey] = useState('');
   const [merchantName, setMerchantName] = useState('');
+  const [destinationAddress, setDestinationAddress] = useState('');
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [payments, setPayments] = useState<StealthPayment[]>([]);
   const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
 
   useEffect(() => {
     setMounted(true);
@@ -131,23 +141,122 @@ export default function WithdrawPage() {
   };
 
   const handleWithdraw = async (payment: StealthPayment) => {
+    if (!publicClient) {
+      setError('Public client unavailable');
+      return;
+    }
+
+    if (!isAddress(destinationAddress)) {
+      setError('Please enter a valid destination Ethereum address');
+      return;
+    }
+
     setLoading(true);
     setError('');
+    setStatus('Preparing withdrawal transaction...');
 
     try {
-      // In production, use the private key to sign and send a transaction
-      // This requires importing the account with the stealth private key
-      // For demo purposes, show instructions
+      const account = privateKeyToAccount(payment.privateKey as `0x${string}`);
+      const walletClient = createWalletClient({
+        account,
+        chain: sepolia,
+        transport: http(),
+      });
 
-      alert(`To withdraw:
-1. Import this private key to MetaMask (temporary account)
-2. Send the funds to your main wallet
-3. Delete the temporary account
+      const gasPrice = await publicClient.getGasPrice();
+      const gasLimit = BigInt(21000);
+      const fee = gasPrice * gasLimit;
 
-Private Key: ${payment.privateKey}
-Balance: ${formatEther(payment.balance)} ETH`);
+      if (payment.balance <= fee) {
+        throw new Error('Balance too low to cover network fee for this stealth address');
+      }
+
+      const value = payment.balance - fee;
+      setStatus(`Sending ${formatEther(value)} ETH to ${destinationAddress}...`);
+
+      const hash = await walletClient.sendTransaction({
+        to: destinationAddress as `0x${string}`,
+        value,
+        gas: gasLimit,
+        gasPrice,
+      });
+
+      setStatus('Waiting for confirmation...');
+      await publicClient.waitForTransactionReceipt({ hash });
+
+      setPayments((prev) => prev.filter((p) => p.address !== payment.address));
+      setStatus(`Withdrawal confirmed: ${hash}`);
     } catch (err: any) {
       setError(err.message || 'Withdrawal failed');
+      setStatus('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleWithdrawAll = async () => {
+    if (!publicClient) {
+      setError('Public client unavailable');
+      return;
+    }
+
+    if (!isAddress(destinationAddress)) {
+      setError('Please enter a valid destination Ethereum address');
+      return;
+    }
+
+    if (payments.length === 0) {
+      setError('No payments available to withdraw');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    let completed = 0;
+
+    try {
+      for (const payment of payments) {
+        try {
+          const account = privateKeyToAccount(payment.privateKey as `0x${string}`);
+          const walletClient = createWalletClient({
+            account,
+            chain: sepolia,
+            transport: http(),
+          });
+
+          const gasPrice = await publicClient.getGasPrice();
+          const gasLimit = BigInt(21000);
+          const fee = gasPrice * gasLimit;
+
+          if (payment.balance <= fee) {
+            continue;
+          }
+
+          const value = payment.balance - fee;
+          setStatus(`Withdrawing payment ${completed + 1}/${payments.length}...`);
+
+          const hash = await walletClient.sendTransaction({
+            to: destinationAddress as `0x${string}`,
+            value,
+            gas: gasLimit,
+            gasPrice,
+          });
+
+          await publicClient.waitForTransactionReceipt({ hash });
+          completed += 1;
+        } catch {
+          // Continue with the next stealth address
+        }
+      }
+
+      setPayments([]);
+      setStatus(`Completed ${completed} withdrawal${completed !== 1 ? 's' : ''} to ${destinationAddress}.`);
+      if (completed === 0) {
+        setError('No withdrawals were completed. Balances may be too low for gas or keys may be invalid.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Bulk withdrawal failed');
+      setStatus('');
     } finally {
       setLoading(false);
     }
@@ -253,22 +362,28 @@ Balance: ${formatEther(payment.balance)} ETH`);
               {payments.length !== 1 ? 's' : ''} found)
             </h2>
 
-            {!isConnected && (
-              <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
-                <p className="text-blue-800 dark:text-blue-200 mb-2">
-                  Connect your wallet to withdraw
-                </p>
-                {connectors.map((connector) => (
-                  <button
-                    key={connector.id}
-                    onClick={() => connect({ connector })}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 mr-2"
-                  >
-                    Connect {connector.name}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
+              <label className="block text-sm font-medium mb-2 text-blue-900 dark:text-blue-200">
+                Destination Address
+              </label>
+              <input
+                type="text"
+                value={destinationAddress}
+                onChange={(e) => setDestinationAddress(e.target.value)}
+                placeholder="0x..."
+                className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
+              />
+              <p className="text-xs text-blue-800 dark:text-blue-300 mt-2">
+                Funds from all discovered stealth addresses will be sent here.
+              </p>
+              <button
+                onClick={handleWithdrawAll}
+                disabled={loading || !isAddress(destinationAddress)}
+                className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Processing...' : 'Withdraw All to Destination'}
+              </button>
+            </div>
 
             <div className="space-y-4">
               {payments.map((payment, index) => (
@@ -345,7 +460,7 @@ Balance: ${formatEther(payment.balance)} ETH`);
 
                   <button
                     onClick={() => handleWithdraw(payment)}
-                    disabled={loading || !isConnected}
+                    disabled={loading || !isAddress(destinationAddress)}
                     className="w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     💸 Withdraw {formatEther(payment.balance)} ETH
@@ -390,16 +505,22 @@ Balance: ${formatEther(payment.balance)} ETH`);
               <strong>Step 2:</strong> Scan recent on-chain announcements for your merchant ENS name
             </p>
             <p>
-              <strong>Step 3:</strong> Withdrawal derives stealth private keys using your spend key and the announced ephemeral keys
+              <strong>Step 3:</strong> Withdrawal derives stealth private keys and signs transfers directly in-browser
             </p>
             <p>
               <strong>Recipient match:</strong> Payments and withdrawals must use the same full ENS name, e.g. merchant.enstealth.eth
             </p>
             <p>
-              <strong>Privacy:</strong> Your keys never leave your browser - all crypto is client-side
+              <strong>Privacy:</strong> Your keys never leave your browser - all crypto and signing are client-side
             </p>
           </div>
         </div>
+
+        {status && (
+          <div className="border rounded-lg p-4 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
+            <p className="text-green-800 dark:text-green-200 break-all">{status}</p>
+          </div>
+        )}
       </div>
     </div>
   );
