@@ -69,9 +69,12 @@ export default function PaymentPage() {
 
     setLoading(true);
     setError('');
+    // Clear previous stealth address to ensure fresh generation
+    setStealthAddress('');
+    setEphemeralKey('');
 
     try {
-      // Derive stealth address
+      // Derive stealth address - generates new random ephemeral key each time
       const stealth = deriveStealthAddress(
         ensKeys.spendPublicKey,
         ensKeys.viewPublicKey
@@ -106,9 +109,12 @@ export default function PaymentPage() {
 
     setLoading(true);
     setError('');
+    // Clear previous stealth address to ensure fresh generation
+    setStealthAddress('');
+    setEphemeralKey('');
 
     try {
-      // Derive stealth address
+      // Derive stealth address - generates new random ephemeral key each time
       const stealth = deriveStealthAddress(
         ensKeys.spendPublicKey,
         ensKeys.viewPublicKey
@@ -137,6 +143,13 @@ export default function PaymentPage() {
       setSuccess(true);
     }
   }, [isConfirmed]);
+
+  const handleReset = () => {
+    setSuccess(false);
+    setStealthAddress('');
+    setEphemeralKey('');
+    setError('');
+  };
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -187,7 +200,7 @@ export default function PaymentPage() {
             )}
           </div>
           <button
-            onClick={() => setSuccess(false)}
+            onClick={handleReset}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
           >
             Make Another Payment

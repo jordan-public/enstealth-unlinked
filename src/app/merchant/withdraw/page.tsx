@@ -20,11 +20,11 @@ interface StealthPayment {
 export default function WithdrawPage() {
   const { isConnected } = useAccount();
   const publicClient = usePublicClient();
-{ connect, connectors } = useConnect();
-  const 
+  const { connect, connectors } = useConnect();
   const [spendPrivateKey, setSpendPrivateKey] = useState('');
   const [viewPrivateKey, setViewPrivateKey] = useState('');
   const [merchantName, setMerchantName] = useState('');
+  const [ephemeralKeys, setEphemeralKeys] = useState('');
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [payments, setPayments] = useState<StealthPayment[]>([]);
@@ -54,73 +54,56 @@ export default function WithdrawPage() {
       return;
     }
 
+    if (!ephemeralKeys.trim()) {
+      setError('Please provide at least one ephemeral key');
+      return;
+    }
+
     setScanning(true);
     setError('');
     setPayments([]);
 
     try {
-      // Fetch events from smart contract
-      // In production, use proper event filtering with merchant's ENS node
-      const filter = await publicClient?.createContractEventFilter({
-        address: CONTRACTS.STEALTH_PAYMENT as `0x${string}`,
-        abi: STEALTH_PAYMENT_ABI,
-        eventName: 'StealthAnnouncement',
-        fromBlock: BigInt(0),
-      });
+      // Parse ephemeral keys (one per line)
+      const keysList = ephemeralKeys
+        .split('\n')
+        .map((k) => k.trim())
+        .filter((k) => k.length > 0);
 
-      const logs = filter ? await publicClient?.getFilterLogs({ filter }) : [];
-
-      if (!logs || logs.length === 0) {
-        setError('No payments found. This might be a demo environment.');
-        // Show mock payment for demo
-        const mockEphemeralKeys = [
-          '0x0000000000000000000000000000000000000000000000000000000000000001',
-        ];
-        const scanned = scanStealthPayments(
-          viewPrivateKey,
-          spendPrivateKey,
-          mockEphemeralKeys
-        );
-        setPayments(
-          scanned.map((s) => ({
-            ...s,
-            balance: BigInt(0),
-            ephemeralKey: mockEphemeralKeys[0],
-          }))
-        );
+      if (keysList.length === 0) {
+        setError('No valid ephemeral keys provided');
         setScanning(false);
         return;
       }
 
-      // Extract ephemeral keys from events
-      const ephemeralKeys = logs.map((log: any) => log.args.ephemeralPubKey);
-
-      // Scan for stealth addresses
+      // Scan for stealth addresses using the provided ephemeral keys
       const scanned = scanStealthPayments(
         viewPrivateKey,
         spendPrivateKey,
-        ephemeralKeys
+        keysList
       );
 
-      // Check balances and add event metadata
+      // Check balances
       const paymentsWithBalances = await Promise.all(
         scanned.map(async (payment, index) => {
           const balance = await publicClient?.getBalance({
             address: payment.address as `0x${string}`,
           });
-          const log = logs[index] as any;
           return {
             ...payment,
             balance: balance || BigInt(0),
-            ephemeralKey: ephemeralKeys[index],
-            sender: log?.args?.sender,
-            blockNumber: log?.blockNumber,
-            transactionHash: log?.transactionHash,
+            ephemeralKey: keysList[index],
           };
         })
       );
 
-      setPayments(paymentsWithBalances.filter((p) => p.balance > BigInt(0)));
+      const nonZero = paymentsWithBalances.filter((p) => p.balance > BigInt(0));
+      
+      if (nonZero.length === 0) {
+        setError('No payments found with balance. The ephemeral keys might be incorrect or funds already withdrawn.');
+      } else {
+        setPayments(nonZero);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to scan for payments');
     } finally {
@@ -215,13 +198,30 @@ Balance: ${formatEther(payment.balance)} ETH`);
         </div>
 
         <div className="border rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Step 2: Scan for Payments</h2>
+          <h2 className="text-xl font-semibold mb-4">Step 2: Enter Ephemeral Keys</h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            Paste the ephemeral keys (R values) from your payments, one per line. You can find these in the payment confirmation screens.
+          </p>
+          <textarea
+            value={ephemeralKeys}
+            onChange={(e) => setEphemeralKeys(e.target.value)}
+            placeholder="0x02a1b2c3d4e5f6...&#10;0x03b2c3d4e5f6a7...&#10;0x04c3d4e5f6a7b8..."
+            rows={6}
+            className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 font-mono text-sm"
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+            💡 Compressed format (33 bytes) or x-coordinate (32 bytes) both work
+          </p>
+        </div>
+
+        <div className="border rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Step 3: Scan for Payments</h2>
           <button
             onClick={handleScan}
-            disabled={scanning || !viewPrivateKey || !spendPrivateKey}
+            disabled={scanning || !viewPrivateKey || !spendPrivateKey || !ephemeralKeys.trim()}
             className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {scanning ? 'Scanning...' : 'Scan Blockchain'}
+            {scanning ? 'Scanning...' : '🔍 Scan for Payments'}
           </button>
 
           {error && (
@@ -234,7 +234,7 @@ Balance: ${formatEther(payment.balance)} ETH`);
         {payments.length > 0 && (
           <div className="border rounded-lg p-6">
             <h2 className="text-xl font-semibold mb-4">
-              Step 3: Withdraw ({payments.length} payment
+              Step 4: Withdraw ({payments.length} payment
               {payments.length !== 1 ? 's' : ''} found)
             </h2>
 
@@ -242,6 +242,7 @@ Balance: ${formatEther(payment.balance)} ETH`);
               <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
                 <p className="text-blue-800 dark:text-blue-200 mb-2">
                   Connect your wallet to withdraw
+                </p>
                 {connectors.map((connector) => (
                   <button
                     key={connector.id}
@@ -251,12 +252,12 @@ Balance: ${formatEther(payment.balance)} ETH`);
                     Connect {connector.name}
                   </button>
                 ))}
-                <ConnectKitButton />
               </div>
             )}
 
-            <div className="space-y-2 border-green-500 rounded-lg p-6 bg-green-50 dark:bg-green-900/20"
-                >
+            <div className="space-y-4">
+              {payments.map((payment, index) => (
+                <div key={index} className="border border-green-500 rounded-lg p-6 bg-green-50 dark:bg-green-900/20">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
                       <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
@@ -289,28 +290,14 @@ Balance: ${formatEther(payment.balance)} ETH`);
 
                     {payment.sender && (
                       <div>
-                        <div cl6 p-6 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-lg border-2 border-green-300 dark:border-green-700">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    Total Funds Available
-                  </p>
-                  <p className="text-4xl font-bold text-green-600 dark:text-green-400">
-                    {formatEther(
-                      payments.reduce((sum, p) => sum + p.balance, BigInt(0))
-                    )}{' '}
-                    ETH
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Across {payments.length} stealth address{payments.length !== 1 ? 'es' : ''}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                    🔒 Privacy preserved
-                  </p>
-                </div>
-              </div   )}
+                        <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                          👤 SENDER
+                        </div>
+                        <code className="text-xs bg-white dark:bg-gray-800 px-2 py-1 rounded border">
+                          {payment.sender}
+                        </code>
+                      </div>
+                    )}
 
                     {payment.blockNumber && (
                       <div className="flex gap-4">
@@ -346,24 +333,34 @@ Balance: ${formatEther(payment.balance)} ETH`);
                     disabled={loading || !isConnected}
                     className="w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    💰 Withdraw {formatEther(payment.balance)} ETH{() => handleWithdraw(payment)}
-                    disabled={loading || !isConnected}
-                    className="mt-4 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Withdraw to Connected Wallet
+                    💸 Withdraw {formatEther(payment.balance)} ETH
                   </button>
                 </div>
               ))}
             </div>
 
-            <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-md text-sm">
-              <p className="font-medium mb-2">Total Balance:</p>
-              <p className="text-2xl font-bold">
-                {formatEther(
-                  payments.reduce((sum, p) => sum + p.balance, BigInt(0))
-                )}{' '}
-                ETH
-              </p>
+            <div className="mt-6 p-6 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-lg border-2 border-green-300 dark:border-green-700">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Total Funds Available
+                  </p>
+                  <p className="text-4xl font-bold text-green-600 dark:text-green-400">
+                    {formatEther(
+                      payments.reduce((sum, p) => sum + p.balance, BigInt(0))
+                    )}{' '}
+                    ETH
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Across {payments.length} stealth address{payments.length !== 1 ? 'es' : ''}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                    🔒 Privacy preserved
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}

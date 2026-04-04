@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Web3Provider } from '@/components/Web3Provider';
+import { ConnectButton } from '@/components/ConnectButton';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -40,6 +41,9 @@ export default function RootLayout({
                       Withdraw
                     </a>
                   </div>
+                </div>
+                <div className="flex items-center">
+                  <ConnectButton />
                 </div>
               </div>
             </div>
