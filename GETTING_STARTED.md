@@ -5,9 +5,22 @@ Welcome to ENStealth Unlinked! This guide will help you get started quickly.
 ## Prerequisites
 
 - Node.js (v18 or higher)
+- pnpm (faster alternative to npm)
 - Foundry (for smart contract development)
 - A wallet (MetaMask or similar)
 - Some Sepolia ETH for testing
+
+## Installing pnpm
+
+```bash
+# Install pnpm globally
+npm install -g pnpm
+
+# Verify installation
+pnpm --version
+```
+
+See [PNPM.md](PNPM.md) for more details on using pnpm.
 
 ## Quick Start
 
@@ -17,6 +30,9 @@ Welcome to ENStealth Unlinked! This guide will help you get started quickly.
 # Install Foundry
 curl -L https://foundry.paradigm.xyz | bash
 foundryup
+
+# Install pnpm if you don't have it
+npm install -g pnpm
 
 # Clone and install
 git clone <your-repo-url>
@@ -171,7 +187,7 @@ Each payment goes to a unique "stealth" address that only the recipient can spen
 make test
 
 # Frontend (add tests as needed)
-npm test
+pnpm test
 ```
 
 ### Local Development

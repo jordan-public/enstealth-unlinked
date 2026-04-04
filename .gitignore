@@ -9,6 +9,10 @@ node_modules/
 dist/
 build/
 
+# Package managers
+package-lock.json  # npm (not used - we use pnpm)
+# pnpm-lock.yaml should be committed!
+
 # Environment
 .env
 .env.local

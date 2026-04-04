@@ -31,14 +31,14 @@ Tests the stealth address cryptography implementation.
 # Run crypto tests
 make test-crypto
 
-# Or with npm
-npm test
+# Or with pnpm
+pnpm test
 
 # Watch mode
-npm run test:watch
+pnpm test:watch
 
 # Coverage report
-npm run test:coverage
+pnpm test:coverage
 ```
 
 **What's tested:**
@@ -119,7 +119,7 @@ This ensures that:
 Target: 80% coverage for crypto library
 
 ```bash
-npm run test:coverage
+pnpm test:coverage
 ```
 
 Coverage includes:
@@ -133,7 +133,7 @@ Coverage includes:
 
 1. **Generate Keys**
    ```bash
-   npm run dev
+   pnpm dev
    # Visit /merchant/create
    # Generate and save keys
    ```
@@ -174,7 +174,7 @@ forge test -vvvv
 
 # Run specific test
 forge test --match-test testSendFunds -vvv
-npm test -- crypto.test.ts
+pnpm test crypto.test.ts
 ```
 
 ### Common Issues

@@ -18,15 +18,31 @@ Privacy-focused payment system combining ENS, stealth addresses, WalletConnect, 
 
 ## Quick Start
 
-### 1. Install Dependencies
+> **Note**: This project uses **pnpm** for package management. See [PNPM.md](PNPM.md) for installation and usage.
+
+### 1. Clone Repository
 
 ```bash
-# Install Foundry
+# Clone with submodules
+git clone --recursive https://github.com/jordan-public/enstealth-unlinked.git
+cd enstealth-unlinked
+
+# Or if already cloned without --recursive:
+git submodule update --init --recursive
+```
+
+### 2. Install Dependencies
+
+```bash
+# In3tall Foundry
 curl -L https://foundry.paradigm.xyz | bash
 foundryup
 
+# Install pnpm (if not already installed)
+npm install -g pnpm
+
 # Install Node dependencies
-npm install
+pnpm install
 ```
 
 ### 2. Build Contracts
@@ -35,19 +51,14 @@ npm install
 forge build
 ```
 
-### 3. Run Tests
+### 4. Run Tests
 
 ```bash
 forge test
+pnpm test
 ```
 
-### 3. Run Tests
-
-```bash
-forge test
-```
-
-### 4. Deploy Contracts
+### 5. Deploy Contracts
 
 ```bash
 # Set up .env file first
@@ -55,15 +66,15 @@ cp .env.example .env
 # Edit .env with your values
 
 # Deploy to Sepolia
-npm run contract:deploy
+pnpm contract:deploy
 ```
 
 ### 5. Run Frontend
 
 ```bash
-npm run dev
+pnpm dev
 ```
-
+6
 Visit `http://localhost:3000`
 
 ## Testing
@@ -81,7 +92,7 @@ forge test -vvv
 ```bash
 make test-crypto
 # or
-npm test
+pnpm test
 ```
 
 The crypto tests verify the most critical functionality:

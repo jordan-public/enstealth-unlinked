@@ -4,9 +4,20 @@
 
 1. **Foundry** installed
 2. **Node.js** v18+
-3. **Sepolia ETH** for gas
+3. **pnpm** installed (`npm install -g pnpm`)
+4. **Sepolia ETH** for gas
 4. **WalletConnect Project ID** from https://cloud.walletconnect.com/
 5. **RPC URL** from Alchemy or Infura
+
+## Installing pnpm
+
+If you don't have pnpm installed:
+
+```bash
+npm install -g pnpm
+```
+
+See [PNPM.md](PNPM.md) for more details.
 
 ## Step 1: Setup Environment
 

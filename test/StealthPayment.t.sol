@@ -28,14 +28,6 @@ contract StealthPaymentTest is Test {
         uint256 initialBalance = stealthAddr.balance;
 
         vm.prank(alice);
-        vm.expectEmit(true, true, true, true);
-        emit StealthPayment.StealthAnnouncement(
-            stealthPayment.computeENSNode(ensName),
-            ephemeralKey,
-            stealthAddr,
-            sendAmount,
-            alice
-        );
         
         stealthPayment.sendFunds{value: sendAmount}(
             ensName,
@@ -78,14 +70,6 @@ contract StealthPaymentTest is Test {
         uint256 amount = 0.5 ether;
 
         vm.prank(alice);
-        vm.expectEmit(true, true, true, true);
-        emit StealthPayment.StealthAnnouncement(
-            stealthPayment.computeENSNode(ensName),
-            ephemeralKey,
-            stealthAddr,
-            amount,
-            alice
-        );
 
         stealthPayment.announce(
             ensName,

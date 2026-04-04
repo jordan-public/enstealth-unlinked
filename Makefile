@@ -2,8 +2,8 @@
 
 # Install dependencies
 install:
-	forge install foundry-rs/forge-std --no-commit
-	npm install
+	forge install foundry-rs/forge-std
+	pnpm install
 
 # Build contracts
 build:
@@ -15,12 +15,12 @@ test:
 
 # Run crypto tests
 test-crypto:
-	npm test
+	pnpm test
 
 # Run all tests
 test-all:
 	forge test -vvv
-	npm test
+	pnpm test
 
 # Deploy to Sepolia
 deploy:

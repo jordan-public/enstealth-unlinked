@@ -15,8 +15,8 @@ make anvil               # Start local blockchain
 
 # Frontend
 make dev                 # Start dev server (http://localhost:3000)
-npm run build           # Build for production
-npm start               # Start production server
+pnpm build              # Build for production
+pnpm start              # Start production server
 
 # Smart Contract
 forge build              # Compile contracts
@@ -173,6 +173,15 @@ PRIVATE_KEY=xxx              # For deployment
 SEPOLIA_RPC_URL=xxx         # Sepolia RPC
 ETHERSCAN_API_KEY=xxx       # For verification
 UNLINK_API_KEY=xxx          # Unlink integration
+```
+
+## Package Manager
+
+This project uses **pnpm** for faster, more efficient dependency management.
+
+Install pnpm:
+```bash
+npm install -g pnpm
 ```
 
 ## Key Storage Format (JSON)
