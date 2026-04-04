@@ -273,16 +273,16 @@ export default function PaymentPage() {
                 <div>
                   <p className="text-gray-600 dark:text-gray-400 mb-4">
                     Connect your wallet to continue
+                  </p>
                   {connectors.map((connector) => (
                     <button
                       key={connector.id}
                       onClick={() => connect({ connector })}
-                      className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 mr-2"
+                      className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 mr-2 mb-2"
                     >
                       Connect {connector.name}
                     </button>
                   ))}
-                  <ConnectKitButton />
                 </div>
               ) : (
                 <button

@@ -7,7 +7,15 @@ import "../contracts/ENStealthRegistrar.sol";
 
 contract DeployScript is Script {
     function run() external {
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        // Try to get SEPOLIA_PRIVATE_KEY first, fall back to PRIVATE_KEY for local testing
+        uint256 deployerPrivateKey;
+        try vm.envUint("SEPOLIA_PRIVATE_KEY") returns (uint256 key) {
+            deployerPrivateKey = key;
+            console.log("Using SEPOLIA_PRIVATE_KEY");
+        } catch {
+            deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+            console.log("Using PRIVATE_KEY (local testing)");
+        }
         
         vm.startBroadcast(deployerPrivateKey);
 

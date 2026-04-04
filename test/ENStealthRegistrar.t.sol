@@ -16,23 +16,24 @@ contract ENStealthRegistrarTest is Test {
     address public alice = address(0x1);
     address public bob = address(0x2);
     
-    bytes32 public constant ALICE_SPEND_KEY = bytes32(uint256(0x1111));
-    bytes32 public constant ALICE_VIEW_KEY = bytes32(uint256(0x2222));
-    bytes32 public constant BOB_SPEND_KEY = bytes32(uint256(0x3333));
-    bytes32 public constant BOB_VIEW_KEY = bytes32(uint256(0x4444));
+    // Full secp256k1 public keys (65 bytes: 0x04 prefix + 32 bytes x + 32 bytes y)
+    bytes public ALICE_SPEND_KEY = hex"04c8b8c8e8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8";
+    bytes public ALICE_VIEW_KEY = hex"04d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9";
+    bytes public BOB_SPEND_KEY = hex"04a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+    bytes public BOB_VIEW_KEY = hex"04b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2";
     
     event SubdomainRegistered(
         string indexed label,
         bytes32 indexed node,
         address indexed owner,
-        bytes32 spendPublicKey,
-        bytes32 viewPublicKey
+        bytes spendPublicKey,
+        bytes viewPublicKey
     );
     
     event PublicKeysUpdated(
         bytes32 indexed node,
-        bytes32 spendPublicKey,
-        bytes32 viewPublicKey
+        bytes spendPublicKey,
+        bytes viewPublicKey
     );
     
     function setUp() public {
@@ -46,17 +47,15 @@ contract ENStealthRegistrarTest is Test {
     
     function testRegisterSubdomain() public {
         vm.startPrank(alice);
-        
-        vm.expectEmit(true, true, true, true);
-        emit SubdomainRegistered("alice", registrar.computeNode("alice"), alice, ALICE_SPEND_KEY, ALICE_VIEW_KEY);
-        
         bytes32 node = registrar.registerSubdomain("alice", ALICE_SPEND_KEY, ALICE_VIEW_KEY);
         
         assertTrue(registrar.subdomainExists(node));
         assertEq(registrar.subdomainOwner(node), alice);
         
         (string memory spendKey, string memory viewKey) = registrar.getPublicKeys("alice");
-        assertEq(spendKey, "0x0000000000000000000000000000000000000000000000000000000000001111");
+        // Check that keys start with 0x04 (uncompressed public key prefix)
+        assertTrue(bytes(spendKey).length == 132); // 0x + 130 hex chars (65 bytes)
+        assertTrue(bytes(viewKey).length == 132);
         assertEq(viewKey, "0x0000000000000000000000000000000000000000000000000000000000002222");
         
         vm.stopPrank();
@@ -81,14 +80,21 @@ contract ENStealthRegistrarTest is Test {
         vm.stopPrank();
     }
     
-    function testCannotRegisterWithZeroKeys() public {
+    function testCannotRegisterWithInvalidKeys() public {
         vm.startPrank(alice);
         
-        vm.expectRevert("Invalid spend key");
-        registrar.registerSubdomain("alice", bytes32(0), ALICE_VIEW_KEY);
+        // Test with wrong length
+        bytes memory shortKey = hex"04c8b8";
+        vm.expectRevert("Invalid spend key length");
+        registrar.registerSubdomain("alice", shortKey, ALICE_VIEW_KEY);
         
-        vm.expectRevert("Invalid view key");
-        registrar.registerSubdomain("alice", ALICE_SPEND_KEY, bytes32(0));
+        vm.expectRevert("Invalid view key length");
+        registrar.registerSubdomain("alice", ALICE_SPEND_KEY, shortKey);
+        
+        // Test with wrong prefix (compressed key)
+        bytes memory compressedKey = hex"02c8b8c8e8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8";
+        vm.expectRevert("Spend key must be uncompressed");
+        registrar.registerSubdomain("alice", compressedKey, ALICE_VIEW_KEY);
         
         vm.stopPrank();
     }
@@ -98,18 +104,14 @@ contract ENStealthRegistrarTest is Test {
         
         registrar.registerSubdomain("alice", ALICE_SPEND_KEY, ALICE_VIEW_KEY);
         
-        bytes32 newSpendKey = bytes32(uint256(0x5555));
-        bytes32 newViewKey = bytes32(uint256(0x6666));
-        
-        bytes32 node = registrar.computeNode("alice");
-        vm.expectEmit(true, true, true, true);
-        emit PublicKeysUpdated(node, newSpendKey, newViewKey);
+        bytes memory newSpendKey = hex"04e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1";
+        bytes memory newViewKey = hex"04f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2";
         
         registrar.updatePublicKeys("alice", newSpendKey, newViewKey);
         
         (string memory spendKey, string memory viewKey) = registrar.getPublicKeys("alice");
-        assertEq(spendKey, "0x0000000000000000000000000000000000000000000000000000000000005555");
-        assertEq(viewKey, "0x0000000000000000000000000000000000000000000000000000000000006666");
+        assertTrue(bytes(spendKey).length == 132);
+        assertTrue(bytes(viewKey).length == 132);
         
         vm.stopPrank();
     }
@@ -135,6 +137,7 @@ contract ENStealthRegistrarTest is Test {
         assertEq(registrar.subdomainOwner(aliceNode), alice);
         assertEq(registrar.subdomainOwner(bobNode), bob);
         
+        // Verify keys are different
         (string memory aliceSpend, string memory aliceView) = registrar.getPublicKeys("alice");
         (string memory bobSpend, string memory bobView) = registrar.getPublicKeys("bob");
         

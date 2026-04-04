@@ -33,14 +33,14 @@ contract ENStealthRegistrar {
         string indexed label,
         bytes32 indexed node,
         address indexed owner,
-        bytes32 spendPublicKey,
-        bytes32 viewPublicKey
+        bytes spendPublicKey,
+        bytes viewPublicKey
     );
 
     event PublicKeysUpdated(
         bytes32 indexed node,
-        bytes32 spendPublicKey,
-        bytes32 viewPublicKey
+        bytes spendPublicKey,
+        bytes viewPublicKey
     );
 
     /**
@@ -58,17 +58,19 @@ contract ENStealthRegistrar {
     /**
      * @notice Register a subdomain with stealth address public keys
      * @param label The subdomain label (e.g., "alice" for alice.enstealth.eth)
-     * @param spendPublicKey The spend public key for stealth addresses
-     * @param viewPublicKey The view public key for stealth addresses
+     * @param spendPublicKey The spend public key for stealth addresses (65 bytes)
+     * @param viewPublicKey The view public key for stealth addresses (65 bytes)
      */
     function registerSubdomain(
         string calldata label,
-        bytes32 spendPublicKey,
-        bytes32 viewPublicKey
+        bytes calldata spendPublicKey,
+        bytes calldata viewPublicKey
     ) external returns (bytes32) {
         require(bytes(label).length > 0, "Label cannot be empty");
-        require(spendPublicKey != bytes32(0), "Invalid spend key");
-        require(viewPublicKey != bytes32(0), "Invalid view key");
+        require(spendPublicKey.length == 65, "Invalid spend key length");
+        require(viewPublicKey.length == 65, "Invalid view key length");
+        require(spendPublicKey[0] == 0x04, "Spend key must be uncompressed");
+        require(viewPublicKey[0] == 0x04, "View key must be uncompressed");
 
         bytes32 labelHash = keccak256(bytes(label));
         bytes32 subnode = keccak256(abi.encodePacked(rootNode, labelHash));
@@ -84,8 +86,8 @@ contract ENStealthRegistrar {
         subdomainOwner[subnode] = msg.sender;
 
         // Set text records for public keys (as hex strings)
-        resolver.setText(subnode, "stealth:spend", bytes32ToString(spendPublicKey));
-        resolver.setText(subnode, "stealth:view", bytes32ToString(viewPublicKey));
+        resolver.setText(subnode, "stealth:spend", bytesToString(spendPublicKey));
+        resolver.setText(subnode, "stealth:view", bytesToString(viewPublicKey));
 
         emit SubdomainRegistered(label, subnode, msg.sender, spendPublicKey, viewPublicKey);
 
@@ -95,16 +97,18 @@ contract ENStealthRegistrar {
     /**
      * @notice Update public keys for an existing subdomain (only owner)
      * @param label The subdomain label
-     * @param spendPublicKey The new spend public key
-     * @param viewPublicKey The new view public key
+     * @param spendPublicKey The new spend public key (65 bytes)
+     * @param viewPublicKey The new view public key (65 bytes)
      */
     function updatePublicKeys(
         string calldata label,
-        bytes32 spendPublicKey,
-        bytes32 viewPublicKey
+        bytes calldata spendPublicKey,
+        bytes calldata viewPublicKey
     ) external {
-        require(spendPublicKey != bytes32(0), "Invalid spend key");
-        require(viewPublicKey != bytes32(0), "Invalid view key");
+        require(spendPublicKey.length == 65, "Invalid spend key length");
+        require(viewPublicKey.length == 65, "Invalid view key length");
+        require(spendPublicKey[0] == 0x04, "Spend key must be uncompressed");
+        require(viewPublicKey[0] == 0x04, "View key must be uncompressed");
 
         bytes32 labelHash = keccak256(bytes(label));
         bytes32 subnode = keccak256(abi.encodePacked(rootNode, labelHash));
@@ -113,8 +117,8 @@ contract ENStealthRegistrar {
         require(subdomainOwner[subnode] == msg.sender, "Not subdomain owner");
 
         // Update text records
-        resolver.setText(subnode, "stealth:spend", bytes32ToString(spendPublicKey));
-        resolver.setText(subnode, "stealth:view", bytes32ToString(viewPublicKey));
+        resolver.setText(subnode, "stealth:spend", bytesToString(spendPublicKey));
+        resolver.setText(subnode, "stealth:view", bytesToString(viewPublicKey));
 
         emit PublicKeysUpdated(subnode, spendPublicKey, viewPublicKey);
     }
@@ -150,17 +154,17 @@ contract ENStealthRegistrar {
     }
 
     /**
-     * @notice Convert bytes32 to hex string with 0x prefix
-     * @param data The bytes32 data
+     * @notice Convert bytes to hex string with 0x prefix
+     * @param data The bytes data
      * @return The hex string representation
      */
-    function bytes32ToString(bytes32 data) internal pure returns (string memory) {
+    function bytesToString(bytes calldata data) internal pure returns (string memory) {
         bytes memory alphabet = "0123456789abcdef";
-        bytes memory str = new bytes(66); // 0x + 64 hex chars
+        bytes memory str = new bytes(2 + data.length * 2); // 0x + 2 hex chars per byte
         str[0] = '0';
         str[1] = 'x';
         
-        for (uint256 i = 0; i < 32; i++) {
+        for (uint256 i = 0; i < data.length; i++) {
             str[2 + i * 2] = alphabet[uint8(data[i] >> 4)];
             str[3 + i * 2] = alphabet[uint8(data[i] & 0x0f)];
         }
