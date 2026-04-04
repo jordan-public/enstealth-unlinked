@@ -12,6 +12,9 @@ interface StealthPayment {
   privateKey: string;
   balance: bigint;
   ephemeralKey: string;
+  sender?: string;
+  blockNumber?: bigint;
+  transactionHash?: string;
 }
 
 export default function WithdrawPage() {
@@ -99,16 +102,20 @@ export default function WithdrawPage() {
         ephemeralKeys
       );
 
-      // Check balances
+      // Check balances and add event metadata
       const paymentsWithBalances = await Promise.all(
         scanned.map(async (payment, index) => {
           const balance = await publicClient?.getBalance({
             address: payment.address as `0x${string}`,
           });
+          const log = logs[index] as any;
           return {
             ...payment,
             balance: balance || BigInt(0),
             ephemeralKey: ephemeralKeys[index],
+            sender: log?.args?.sender,
+            blockNumber: log?.blockNumber,
+            transactionHash: log?.transactionHash,
           };
         })
       );
@@ -248,35 +255,98 @@ Balance: ${formatEther(payment.balance)} ETH`);
               </div>
             )}
 
-            <div className="space-y-4">
-              {payments.map((payment, index) => (
-                <div
-                  key={index}
-                  className="border rounded-lg p-4 bg-green-50 dark:bg-green-900/20"
+            <div className="space-y-2 border-green-500 rounded-lg p-6 bg-green-50 dark:bg-green-900/20"
                 >
-                  <div className="flex justify-between items-start mb-2">
+                  <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
-                      <div className="text-sm text-gray-600 dark:text-gray-400">
-                        Stealth Address
+                      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+                        Payment #{index + 1}
                       </div>
-                      <code className="text-xs break-all">{payment.address}</code>
-                    </div>
-                    <div className="ml-4 text-right">
                       <div className="text-2xl font-bold text-green-600 dark:text-green-400">
                         {formatEther(payment.balance)} ETH
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-2 text-sm">
-                    <div className="text-gray-600 dark:text-gray-400">
-                      Ephemeral Key
+                  <div className="space-y-3 mb-4">
+                    <div>
+                      <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                        🎯 STEALTH ADDRESS
+                      </div>
+                      <code className="text-sm break-all bg-white dark:bg-gray-800 px-2 py-1 rounded border">
+                        {payment.address}
+                      </code>
                     </div>
-                    <code className="text-xs break-all">{payment.ephemeralKey}</code>
+
+                    <div>
+                      <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                        🔑 EPHEMERAL KEY (R)
+                      </div>
+                      <code className="text-xs break-all bg-white dark:bg-gray-800 px-2 py-1 rounded border">
+                        {payment.ephemeralKey}
+                      </code>
+                    </div>
+
+                    {payment.sender && (
+                      <div>
+                        <div cl6 p-6 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-lg border-2 border-green-300 dark:border-green-700">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Total Funds Available
+                  </p>
+                  <p className="text-4xl font-bold text-green-600 dark:text-green-400">
+                    {formatEther(
+                      payments.reduce((sum, p) => sum + p.balance, BigInt(0))
+                    )}{' '}
+                    ETH
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Across {payments.length} stealth address{payments.length !== 1 ? 'es' : ''}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                    🔒 Privacy preserved
+                  </p>
+                </div>
+              </div   )}
+
+                    {payment.blockNumber && (
+                      <div className="flex gap-4">
+                        <div>
+                          <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                            📦 BLOCK
+                          </div>
+                          <code className="text-xs bg-white dark:bg-gray-800 px-2 py-1 rounded border">
+                            {payment.blockNumber.toString()}
+                          </code>
+                        </div>
+                        {payment.transactionHash && (
+                          <div className="flex-1">
+                            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                              🔗 TX HASH
+                            </div>
+                            <a
+                              href={`https://sepolia.etherscan.io/tx/${payment.transactionHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 dark:text-blue-400 hover:underline break-all"
+                            >
+                              {payment.transactionHash.slice(0, 10)}...{payment.transactionHash.slice(-8)}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <button
                     onClick={() => handleWithdraw(payment)}
+                    disabled={loading || !isConnected}
+                    className="w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    💰 Withdraw {formatEther(payment.balance)} ETH{() => handleWithdraw(payment)}
                     disabled={loading || !isConnected}
                     className="mt-4 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >

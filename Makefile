@@ -22,6 +22,14 @@ test-all:
 	forge test -vvv
 	pnpm test
 
+# Run integration tests
+test-integration:
+	forge test --match-path "test/integration/*.sol" -vvv
+
+# Run complete stealth flow tests (comprehensive)
+test-stealth:
+	./scripts/test-stealth-flow.sh
+
 # Deploy to Sepolia
 deploy:
 	./scripts/deploy-sepolia.sh
@@ -83,6 +91,8 @@ help:
 	@echo "  make test           - Run contract tests"
 	@echo "  make test-crypto    - Run cryptography tests"
 	@echo "  make test-all       - Run all tests"
+	@echo "  make test-integration - Run integration tests"
+	@echo "  make test-stealth   - Run complete stealth flow tests"
 	@echo "  make deploy         - Deploy to Sepolia (with validation)"
 	@echo "  make test-anvil     - Test with Anvil (automated)"
 	@echo "  make test-fork      - Test with Anvil fork (automated)"
