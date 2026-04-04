@@ -169,17 +169,35 @@ export default function PaymentPage() {
           <h2 className="text-xl font-semibold mb-4 text-green-800 dark:text-green-200">
             ✅ Payment Sent!
           </h2>
+          
+          <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg">
+            <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-200 mb-2">
+              ⚠️ IMPORTANT: Save the Ephemeral Key!
+            </p>
+            <p className="text-xs text-yellow-800 dark:text-yellow-300 mb-3">
+              The merchant needs this to detect and withdraw the payment. Copy it now!
+            </p>
+            <div className="relative">
+              <code className="block p-3 bg-white dark:bg-gray-800 rounded break-all text-sm border-2 border-yellow-400">
+                {ephemeralKey}
+              </code>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(ephemeralKey);
+                  alert('Ephemeral key copied to clipboard!');
+                }}
+                className="absolute top-2 right-2 px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs font-medium"
+              >
+                📋 Copy
+              </button>
+            </div>
+          </div>
+
           <div className="space-y-2 text-sm">
             <div>
               <span className="font-medium">Stealth Address:</span>
               <code className="block mt-1 p-2 bg-white dark:bg-gray-800 rounded break-all">
                 {stealthAddress}
-              </code>
-            </div>
-            <div>
-              <span className="font-medium">Ephemeral Key (R):</span>
-              <code className="block mt-1 p-2 bg-white dark:bg-gray-800 rounded break-all">
-                {ephemeralKey}
               </code>
             </div>
             <div>
@@ -335,13 +353,17 @@ export default function PaymentPage() {
                 merchant&apos;s public keys
               </p>
               <p>
-                2. An ephemeral key is published so the merchant can discover the
-                payment
+                2. An ephemeral key (R) is generated and must be saved by you or the merchant
               </p>
               <p>
-                3. Only the merchant can derive the private key to spend the funds
+                3. The merchant uses their private keys + ephemeral key to find and withdraw the payment
               </p>
-              <p>4. Each payment is unlinkable to others for maximum privacy</p>
+              <p>
+                4. Each payment is unlinkable to others for maximum privacy
+              </p>
+              <p className="text-yellow-700 dark:text-yellow-400 font-medium mt-3">
+                ⚠️ Save the ephemeral key! Without it, the payment cannot be detected.
+              </p>
             </div>
           </div>
         </div>

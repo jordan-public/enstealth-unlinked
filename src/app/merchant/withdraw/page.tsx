@@ -369,20 +369,19 @@ Balance: ${formatEther(payment.balance)} ETH`);
           <h3 className="font-semibold mb-2">How It Works</h3>
           <div className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
             <p>
-              <strong>Scanning:</strong> Uses your view key to derive stealth
-              addresses from ephemeral keys published on-chain
+              <strong>Step 1:</strong> Load your merchant private keys (spend + view keys)
             </p>
             <p>
-              <strong>Detection:</strong> Checks balances of derived addresses to
-              find payments
+              <strong>Step 2:</strong> Enter ephemeral keys (R values) from payments - you should have saved these when payments were made
             </p>
             <p>
-              <strong>Withdrawal:</strong> Uses spend key + ephemeral key to
-              compute private keys for spending
+              <strong>Step 3:</strong> Scan derives stealth addresses using your view key and the ephemeral keys
             </p>
             <p>
-              <strong>Privacy:</strong> Your keys never leave your browser, all
-              crypto is client-side
+              <strong>Step 4:</strong> Withdraw computes the private keys using your spend key to access funds
+            </p>
+            <p>
+              <strong>Privacy:</strong> Your keys never leave your browser - all crypto is client-side
             </p>
           </div>
         </div>
