@@ -1,11 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount, usePublicClient, useConnect } from 'wagmi';
 import { scanStealthPayments } from '@/lib/crypto';
-import { CONTRACTS } from '@/lib/config';
-import { STEALTH_PAYMENT_ABI } from '@/lib/abi';
-import { formatEther } from 'viem';
+import { CONTRACTS, ENS_SUFFIX } from '@/lib/config';
+import { formatEther, keccak256, parseAbiItem, stringToHex } from 'viem';
 
 interface StealthPayment {
   address: string;
@@ -21,14 +20,18 @@ export default function WithdrawPage() {
   const { isConnected } = useAccount();
   const publicClient = usePublicClient();
   const { connect, connectors } = useConnect();
+  const [mounted, setMounted] = useState(false);
   const [spendPrivateKey, setSpendPrivateKey] = useState('');
   const [viewPrivateKey, setViewPrivateKey] = useState('');
   const [merchantName, setMerchantName] = useState('');
-  const [ephemeralKeys, setEphemeralKeys] = useState('');
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [payments, setPayments] = useState<StealthPayment[]>([]);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleLoadKeys = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -49,13 +52,8 @@ export default function WithdrawPage() {
   };
 
   const handleScan = async () => {
-    if (!spendPrivateKey || !viewPrivateKey) {
-      setError('Please provide both private keys');
-      return;
-    }
-
-    if (!ephemeralKeys.trim()) {
-      setError('Please provide at least one ephemeral key');
+    if (!spendPrivateKey || !viewPrivateKey || !merchantName) {
+      setError('Please provide merchant name and both private keys');
       return;
     }
 
@@ -64,35 +62,56 @@ export default function WithdrawPage() {
     setPayments([]);
 
     try {
-      // Parse ephemeral keys (one per line)
-      const keysList = ephemeralKeys
-        .split('\n')
-        .map((k) => k.trim())
-        .filter((k) => k.length > 0);
+      if (!publicClient) {
+        throw new Error('Public client unavailable');
+      }
+
+      const normalizedMerchantName = merchantName.endsWith(ENS_SUFFIX)
+        ? merchantName
+        : `${merchantName}${ENS_SUFFIX}`;
+      const ensNode = keccak256(stringToHex(normalizedMerchantName));
+      const currentBlock = await publicClient.getBlockNumber();
+      const fromBlock = currentBlock > BigInt(1000) ? currentBlock - BigInt(1000) : BigInt(0);
+
+      const logs = await publicClient.getLogs({
+        address: CONTRACTS.STEALTH_PAYMENT as `0x${string}`,
+        event: parseAbiItem(
+          'event StealthAnnouncement(bytes32 indexed ensNode, bytes32 ephemeralPubKey, address indexed stealthAddress, uint256 amount, address indexed sender)'
+        ),
+        args: {
+          ensNode,
+        },
+        fromBlock,
+        toBlock: currentBlock,
+      });
+
+      const keysList = logs
+        .map((log) => log.args.ephemeralPubKey)
+        .filter((value): value is `0x${string}` => Boolean(value));
 
       if (keysList.length === 0) {
-        setError('No valid ephemeral keys provided');
-        setScanning(false);
+        setError(`No announcements found for ${normalizedMerchantName} in the last 1000 blocks.`);
         return;
       }
 
-      // Scan for stealth addresses using the provided ephemeral keys
       const scanned = scanStealthPayments(
         viewPrivateKey,
         spendPrivateKey,
         keysList
       );
 
-      // Check balances
       const paymentsWithBalances = await Promise.all(
         scanned.map(async (payment, index) => {
-          const balance = await publicClient?.getBalance({
+          const balance = await publicClient.getBalance({
             address: payment.address as `0x${string}`,
           });
           return {
             ...payment,
             balance: balance || BigInt(0),
             ephemeralKey: keysList[index],
+            sender: logs[index]?.args.sender,
+            transactionHash: logs[index]?.transactionHash,
+            blockNumber: logs[index]?.blockNumber,
           };
         })
       );
@@ -133,6 +152,16 @@ Balance: ${formatEther(payment.balance)} ETH`);
       setLoading(false);
     }
   };
+
+  if (!mounted) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="flex justify-center items-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -198,27 +227,13 @@ Balance: ${formatEther(payment.balance)} ETH`);
         </div>
 
         <div className="border rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Step 2: Enter Ephemeral Keys</h2>
+          <h2 className="text-xl font-semibold mb-4">Step 2: Scan for Payments</h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Paste the ephemeral keys (R values) from your payments, one per line. You can find these in the payment confirmation screens.
+            This scans recent stealth payment announcements for your merchant ENS name.
           </p>
-          <textarea
-            value={ephemeralKeys}
-            onChange={(e) => setEphemeralKeys(e.target.value)}
-            placeholder="0x02a1b2c3d4e5f6...&#10;0x03b2c3d4e5f6a7...&#10;0x04c3d4e5f6a7b8..."
-            rows={6}
-            className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 font-mono text-sm"
-          />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-            💡 Compressed format (33 bytes) or x-coordinate (32 bytes) both work
-          </p>
-        </div>
-
-        <div className="border rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Step 3: Scan for Payments</h2>
           <button
             onClick={handleScan}
-            disabled={scanning || !viewPrivateKey || !spendPrivateKey || !ephemeralKeys.trim()}
+            disabled={scanning || !merchantName || !viewPrivateKey || !spendPrivateKey}
             className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {scanning ? 'Scanning...' : '🔍 Scan for Payments'}
@@ -234,7 +249,7 @@ Balance: ${formatEther(payment.balance)} ETH`);
         {payments.length > 0 && (
           <div className="border rounded-lg p-6">
             <h2 className="text-xl font-semibold mb-4">
-              Step 4: Withdraw ({payments.length} payment
+              Step 3: Withdraw ({payments.length} payment
               {payments.length !== 1 ? 's' : ''} found)
             </h2>
 
@@ -372,13 +387,13 @@ Balance: ${formatEther(payment.balance)} ETH`);
               <strong>Step 1:</strong> Load your merchant private keys (spend + view keys)
             </p>
             <p>
-              <strong>Step 2:</strong> Enter ephemeral keys (R values) from payments - you should have saved these when payments were made
+              <strong>Step 2:</strong> Scan recent on-chain announcements for your merchant ENS name
             </p>
             <p>
-              <strong>Step 3:</strong> Scan derives stealth addresses using your view key and the ephemeral keys
+              <strong>Step 3:</strong> Withdrawal derives stealth private keys using your spend key and the announced ephemeral keys
             </p>
             <p>
-              <strong>Step 4:</strong> Withdraw computes the private keys using your spend key to access funds
+              <strong>Recipient match:</strong> Payments and withdrawals must use the same full ENS name, e.g. merchant.enstealth.eth
             </p>
             <p>
               <strong>Privacy:</strong> Your keys never leave your browser - all crypto is client-side

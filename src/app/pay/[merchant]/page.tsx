@@ -2,20 +2,24 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useConnect } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useConnect, useReadContract } from 'wagmi';
 import { parseEther } from 'viem';
 import { deriveStealthAddress } from '@/lib/crypto';
-import { CONTRACTS } from '@/lib/config';
-import { STEALTH_PAYMENT_ABI } from '@/lib/abi';
+import { CONTRACTS, ENS_SUFFIX } from '@/lib/config';
+import { STEALTH_PAYMENT_ABI, ENS_REGISTRAR_ABI } from '@/lib/abi';
 
 export default function PaymentPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const merchantName = params.merchant as string;
+  const recipientEnsName = merchantName.endsWith(ENS_SUFFIX)
+    ? merchantName
+    : `${merchantName}${ENS_SUFFIX}`;
   const paymentMethod = searchParams.get('method') || 'walletconnect';
 
   const { isConnected } = useAccount();
   const { connect, connectors } = useConnect();
+  const [mounted, setMounted] = useState(false);
   const [amount, setAmount] = useState('0.01');
   const [loading, setLoading] = useState(false);
   const [stealthAddress, setStealthAddress] = useState<string>('');
@@ -23,11 +27,12 @@ export default function PaymentPage() {
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState(false);
 
-  // Mock ENS resolution - in production, fetch from actual ENS
-  const [ensKeys, setEnsKeys] = useState<{
-    spendPublicKey: string;
-    viewPublicKey: string;
-  } | null>(null);
+  const { data: contractKeys, isLoading: keysLoading, isError: keysError } = useReadContract({
+    address: CONTRACTS.ENS_REGISTRAR as `0x${string}`,
+    abi: ENS_REGISTRAR_ABI,
+    functionName: 'getPublicKeys',
+    args: [merchantName],
+  });
 
   const { writeContract, data: hash } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
@@ -36,34 +41,12 @@ export default function PaymentPage() {
     });
 
   useEffect(() => {
-    // Mock ENS resolution
-    // In production, fetch from ENS text records
-    const mockResolveENS = async () => {
-      setLoading(true);
-      try {
-        // Simulate ENS lookup delay
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        // Mock keys - in production, fetch from ENS
-        setEnsKeys({
-          spendPublicKey:
-            '0x04c8b8c8e8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8',
-          viewPublicKey:
-            '0x04d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9',
-        });
-      } catch (err) {
-        setError('Failed to resolve ENS name');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    mockResolveENS();
-  }, [merchantName]);
+    setMounted(true);
+  }, []);
 
   const handlePayWalletConnect = async () => {
-    if (!ensKeys) {
-      setError('ENS keys not loaded');
+    if (!contractKeys) {
+      setError('Could not load merchant ENS keys');
       return;
     }
 
@@ -76,22 +59,25 @@ export default function PaymentPage() {
     try {
       // Derive stealth address - generates new random ephemeral key each time
       const stealth = deriveStealthAddress(
-        ensKeys.spendPublicKey,
-        ensKeys.viewPublicKey
+        contractKeys[0],
+        contractKeys[1]
       );
 
       setStealthAddress(stealth.address);
       setEphemeralKey(stealth.ephemeralPublicKey);
 
-      // Convert ephemeral key to bytes32 (take first 32 bytes of x-coordinate)
-      const ephemeralKeyBytes32 = stealth.ephemeralPublicKey.slice(0, 66) as `0x${string}`;
+      // Extract the 32-byte x-coordinate from the compressed ephemeral public key.
+      // Compressed format: "0x" + parity_byte(1B) + x_coord(32B) = 68 chars total.
+      // The contract stores bytes32, so we pass just the x-coord (chars 4 onward).
+      const xHex = stealth.ephemeralPublicKey.slice(4); // skip "0x02" or "0x03"
+      const ephemeralKeyBytes32 = `0x${xHex}` as `0x${string}`;
 
       // Call smart contract
       writeContract({
         address: CONTRACTS.STEALTH_PAYMENT as `0x${string}`,
         abi: STEALTH_PAYMENT_ABI,
         functionName: 'sendFunds',
-        args: [merchantName, ephemeralKeyBytes32, stealth.address as `0x${string}`],
+        args: [recipientEnsName, ephemeralKeyBytes32, stealth.address as `0x${string}`],
         value: parseEther(amount),
       });
     } catch (err: any) {
@@ -102,8 +88,8 @@ export default function PaymentPage() {
   };
 
   const handlePayUnlink = async () => {
-    if (!ensKeys) {
-      setError('ENS keys not loaded');
+    if (!contractKeys) {
+      setError('Could not load merchant ENS keys');
       return;
     }
 
@@ -116,8 +102,8 @@ export default function PaymentPage() {
     try {
       // Derive stealth address - generates new random ephemeral key each time
       const stealth = deriveStealthAddress(
-        ensKeys.spendPublicKey,
-        ensKeys.viewPublicKey
+        contractKeys[0],
+        contractKeys[1]
       );
 
       setStealthAddress(stealth.address);
@@ -151,6 +137,16 @@ export default function PaymentPage() {
     setError('');
   };
 
+  if (!mounted) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="flex justify-center items-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-6">
@@ -170,29 +166,6 @@ export default function PaymentPage() {
             ✅ Payment Sent!
           </h2>
           
-          <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg">
-            <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-200 mb-2">
-              ⚠️ IMPORTANT: Save the Ephemeral Key!
-            </p>
-            <p className="text-xs text-yellow-800 dark:text-yellow-300 mb-3">
-              The merchant needs this to detect and withdraw the payment. Copy it now!
-            </p>
-            <div className="relative">
-              <code className="block p-3 bg-white dark:bg-gray-800 rounded break-all text-sm border-2 border-yellow-400">
-                {ephemeralKey}
-              </code>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(ephemeralKey);
-                  alert('Ephemeral key copied to clipboard!');
-                }}
-                className="absolute top-2 right-2 px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs font-medium"
-              >
-                📋 Copy
-              </button>
-            </div>
-          </div>
-
           <div className="space-y-2 text-sm">
             <div>
               <span className="font-medium">Stealth Address:</span>
@@ -282,12 +255,18 @@ export default function PaymentPage() {
             </div>
           </div>
 
-          {loading && (
+          {(loading || keysLoading) && (
             <div className="text-center py-4">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
               <p className="mt-2 text-gray-600 dark:text-gray-400">
-                Processing...
+                {keysLoading ? 'Loading merchant keys...' : 'Processing...'}
               </p>
+            </div>
+          )}
+
+          {keysError && (
+            <div className="border rounded-lg p-4 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
+              <p className="text-red-800 dark:text-red-200">Merchant &quot;{merchantName}&quot; is not registered on ENStealth.</p>
             </div>
           )}
 
@@ -318,7 +297,7 @@ export default function PaymentPage() {
               ) : (
                 <button
                   onClick={handlePayWalletConnect}
-                  disabled={loading || isConfirming || !amount}
+                  disabled={loading || keysLoading || isConfirming || !amount || !contractKeys}
                   className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isConfirming ? 'Confirming...' : 'Send Payment'}
@@ -333,7 +312,7 @@ export default function PaymentPage() {
               </p>
               <button
                 onClick={handlePayUnlink}
-                disabled={loading || !amount}
+                disabled={loading || keysLoading || !amount || !contractKeys}
                 className="w-full px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Processing...' : 'Send Private Payment'}
@@ -353,16 +332,13 @@ export default function PaymentPage() {
                 merchant&apos;s public keys
               </p>
               <p>
-                2. An ephemeral key (R) is generated and must be saved by you or the merchant
+                2. An ephemeral key (R) is announced on-chain by the contract
               </p>
               <p>
-                3. The merchant uses their private keys + ephemeral key to find and withdraw the payment
+                3. The merchant scans on-chain announcements using their private keys to find and withdraw
               </p>
               <p>
                 4. Each payment is unlinkable to others for maximum privacy
-              </p>
-              <p className="text-yellow-700 dark:text-yellow-400 font-medium mt-3">
-                ⚠️ Save the ephemeral key! Without it, the payment cannot be detected.
               </p>
             </div>
           </div>

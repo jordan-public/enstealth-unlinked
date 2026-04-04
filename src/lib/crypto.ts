@@ -99,45 +99,49 @@ export function scanStealthPayments(
 
   const results: Array<{ address: string; privateKey: string }> = [];
 
+  // Precompute the spend public key (constant across all ephemeral keys)
+  const P_spend = ec.keyFromPrivate(x.toString(16), 'hex').getPublic();
+
   for (const ephemeralPubKey of ephemeralPublicKeys) {
-    try {
-      // Parse ephemeral public key R
-      const cleanR = ephemeralPubKey.replace('0x', '');
-      let R;
-      
-      // Handle both compressed and uncompressed formats
-      if (cleanR.length === 66) {
-        // Compressed format
-        R = ec.keyFromPublic(cleanR, 'hex').getPublic();
-      } else {
-        // Assume it's a 32-byte x-coordinate, decompress it
-        const xCoord = new BN(cleanR.slice(0, 64), 16);
-        R = ec.curve.pointFromX(xCoord, false);
+    const cleanR = ephemeralPubKey.replace('0x', '');
+
+    // Collect candidate R points. If we have a full 33-byte compressed key
+    // (66 hex chars) use it directly. If we have a 32-byte x-coordinate only
+    // (64 hex chars, stored in bytes32), try both parities because the parity
+    // bit is not preserved in the on-chain bytes32 encoding.
+    const pointsToTry: elliptic.curve.base.BasePoint[] = [];
+
+    if (cleanR.length === 66) {
+      try {
+        pointsToTry.push(ec.keyFromPublic(cleanR, 'hex').getPublic());
+      } catch (error) {
+        console.error('Error parsing compressed ephemeral key:', ephemeralPubKey, error);
+        continue;
       }
+    } else {
+      // 32-byte x-coordinate — try both even and odd parity
+      const xCoord = new BN(cleanR, 16);
+      for (const odd of [false, true]) {
+        try {
+          pointsToTry.push(ec.curve.pointFromX(xCoord, odd));
+        } catch {
+          // x not on the curve for this parity — skip
+        }
+      }
+    }
 
-      // Compute shared secret: S = y·R
-      const S = R.mul(y);
-
-      // Hash the shared secret: h = H(S)
-      const h = hashPoint(S);
-
-      // Compute stealth public key: P_stealth = P_spend + h·G
-      const P_spend = ec.keyFromPrivate(x.toString(16), 'hex').getPublic();
-      const hG = ec.g.mul(new BN(h, 16));
-      const P_stealth = P_spend.add(hG);
-
-      // Derive address
-      const address = publicKeyToAddress(P_stealth);
-
-      // Compute private key: sk = x + h
-      const sk = x.add(new BN(h, 16)).umod(ec.curve.n);
-
-      results.push({
-        address,
-        privateKey: '0x' + sk.toString(16, 64),
-      });
-    } catch (error) {
-      console.error('Error processing ephemeral key:', ephemeralPubKey, error);
+    for (const R of pointsToTry) {
+      try {
+        const S = R.mul(y);
+        const h = hashPoint(S);
+        const hG = ec.g.mul(new BN(h, 16));
+        const P_stealth = P_spend.add(hG);
+        const address = publicKeyToAddress(P_stealth);
+        const sk = x.add(new BN(h, 16)).umod(ec.curve.n);
+        results.push({ address, privateKey: '0x' + sk.toString(16, 64) });
+      } catch (error) {
+        console.error('Error deriving stealth address for parity candidate:', error);
+      }
     }
   }
 

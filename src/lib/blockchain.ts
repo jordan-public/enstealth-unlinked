@@ -2,6 +2,7 @@ import { createPublicClient, http, parseAbi } from 'viem';
 import { sepolia } from 'viem/chains';
 import { CONTRACTS } from './config';
 import { STEALTH_PAYMENT_ABI, ENS_REGISTRAR_ABI } from './abi';
+import { keccak256, stringToHex } from 'viem';
 
 /**
  * Create a public client for reading blockchain data
@@ -22,11 +23,16 @@ export async function fetchStealthAnnouncements(
 ) {
   const client = getPublicClient();
 
+  const args = merchantName
+    ? { ensNode: computeENSNode(merchantName) }
+    : undefined;
+
   const logs = await client.getLogs({
     address: CONTRACTS.STEALTH_PAYMENT as `0x${string}`,
     event: parseAbi([
       'event StealthAnnouncement(bytes32 indexed ensNode, bytes32 ephemeralPubKey, address indexed stealthAddress, uint256 amount, address indexed sender)',
     ])[0],
+    args,
     fromBlock,
   });
 
@@ -53,14 +59,7 @@ export async function getBalance(address: string): Promise<bigint> {
  * Compute ENS node hash (simplified)
  */
 export function computeENSNode(name: string): `0x${string}` {
-  // This matches the Solidity implementation
-  const encoder = new TextEncoder();
-  const data = encoder.encode(name);
-  
-  // Simple keccak256 - in production use proper ENS namehash
-  return `0x${Array.from(data)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')}` as `0x${string}`;
+  return keccak256(stringToHex(name));
 }
 
 /**

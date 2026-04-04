@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { generateStealthKeys } from '@/lib/crypto';
 import { ENS_SUFFIX, CONTRACTS } from '@/lib/config';
 import { ENS_REGISTRAR_ABI } from '@/lib/abi';
 
 export default function CreateMerchant() {
+  const [mounted, setMounted] = useState(false);
   const [merchantName, setMerchantName] = useState('');
   const [keys, setKeys] = useState<{
     spendPrivateKey: string;
@@ -22,6 +23,10 @@ export default function CreateMerchant() {
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash: registrationTxHash || undefined,
   });
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleGenerate = () => {
     const newKeys = generateStealthKeys();
@@ -77,6 +82,16 @@ export default function CreateMerchant() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  if (!mounted) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="flex justify-center items-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto">

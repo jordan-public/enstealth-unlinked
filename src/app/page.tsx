@@ -1,4 +1,16 @@
+'use client';
+
+import { useState } from 'react';
+
 export default function Home() {
+  const [payMerchant, setPayMerchant] = useState('');
+
+  const handlePay = (method: 'walletconnect' | 'unlink') => {
+    const name = payMerchant.trim();
+    if (!name) return;
+    window.location.href = `/pay/${encodeURIComponent(name)}?method=${method}`;
+  };
+
   return (
     <div className="space-y-8">
       <div className="text-center">
@@ -8,6 +20,35 @@ export default function Home() {
         <p className="mt-6 text-lg leading-8 text-gray-600 dark:text-gray-400">
           Privacy-focused payments combining ENS, stealth addresses, and Unlink
         </p>
+      </div>
+
+      {/* Pay a merchant */}
+      <div className="border rounded-lg p-6">
+        <h2 className="text-xl font-semibold mb-4">💸 Pay a Merchant</h2>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            type="text"
+            value={payMerchant}
+            onChange={(e) => setPayMerchant(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handlePay('walletconnect')}
+            placeholder="merchant name (e.g. cafe)"
+            className="flex-1 min-w-0 px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
+          />
+          <button
+            onClick={() => handlePay('walletconnect')}
+            disabled={!payMerchant.trim()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+          >
+            Pay with Wallet
+          </button>
+          <button
+            onClick={() => handlePay('unlink')}
+            disabled={!payMerchant.trim()}
+            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+          >
+            Pay Privately (Unlink)
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -38,15 +79,15 @@ export default function Home() {
         </div>
 
         <div className="border rounded-lg p-6 hover:shadow-lg transition-shadow">
-          <h3 className="text-lg font-semibold mb-2">💸 Accept Payments</h3>
+          <h3 className="text-lg font-semibold mb-2">💰 Withdraw Funds</h3>
           <p className="text-gray-600 dark:text-gray-400 mb-4">
-            Accept payments via WalletConnect or Unlink
+            Scan and collect funds received to stealth addresses
           </p>
           <a
-            href="/pay/example.enstealth.eth"
+            href="/merchant/withdraw"
             className="text-blue-600 dark:text-blue-400 hover:underline"
           >
-            Try demo →
+            Withdraw →
           </a>
         </div>
 
@@ -55,12 +96,9 @@ export default function Home() {
           <p className="text-gray-600 dark:text-gray-400 mb-4">
             Use Unlink to hide transaction origin
           </p>
-          <a
-            href="/pay/example.enstealth.eth?method=unlink"
-            className="text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            Pay privately →
-          </a>
+          <span className="text-gray-400 dark:text-gray-500 text-sm">
+            Enter merchant name above →
+          </span>
         </div>
 
         <div className="border rounded-lg p-6 hover:shadow-lg transition-shadow">
