@@ -24,6 +24,7 @@ export default function PaymentPage() {
   const [loading, setLoading] = useState(false);
   const [stealthAddress, setStealthAddress] = useState<string>('');
   const [ephemeralKey, setEphemeralKey] = useState<string>('');
+  const [privateTxHash, setPrivateTxHash] = useState<`0x${string}` | ''>('');
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState(false);
 
@@ -52,6 +53,7 @@ export default function PaymentPage() {
 
     setLoading(true);
     setError('');
+    setPrivateTxHash('');
     // Clear previous stealth address to ensure fresh generation
     setStealthAddress('');
     setEphemeralKey('');
@@ -95,6 +97,7 @@ export default function PaymentPage() {
 
     setLoading(true);
     setError('');
+    setPrivateTxHash('');
     // Clear previous stealth address to ensure fresh generation
     setStealthAddress('');
     setEphemeralKey('');
@@ -109,13 +112,29 @@ export default function PaymentPage() {
       setStealthAddress(stealth.address);
       setEphemeralKey(stealth.ephemeralPublicKey);
 
-      // In production, call Unlink API to send private transaction
-      // For now, show mock success
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Extract the 32-byte x-coordinate from the compressed ephemeral public key.
+      const xHex = stealth.ephemeralPublicKey.slice(4); // skip "0x02" or "0x03"
+      const ephemeralKeyBytes32 = `0x${xHex}` as `0x${string}`;
 
-      // Optionally announce via contract
-      // await announcePayment(...)
+      const response = await fetch('/api/private-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          recipientEnsName,
+          ephemeralKeyBytes32,
+          stealthAddress: stealth.address,
+          amount,
+        }),
+      });
 
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Private payment failed');
+      }
+
+      setPrivateTxHash(result.hash as `0x${string}`);
       setSuccess(true);
     } catch (err: any) {
       setError(err.message || 'Payment failed');
@@ -134,6 +153,7 @@ export default function PaymentPage() {
     setSuccess(false);
     setStealthAddress('');
     setEphemeralKey('');
+    setPrivateTxHash('');
     setError('');
   };
 
@@ -176,16 +196,16 @@ export default function PaymentPage() {
             <div>
               <span className="font-medium">Amount:</span> {amount} ETH
             </div>
-            {hash && (
+            {(hash || privateTxHash) && (
               <div>
                 <span className="font-medium">Transaction:</span>
                 <a
-                  href={`https://sepolia.etherscan.io/tx/${hash}`}
+                  href={`https://sepolia.etherscan.io/tx/${privateTxHash || hash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block mt-1 text-blue-600 dark:text-blue-400 hover:underline break-all"
                 >
-                  {hash}
+                  {privateTxHash || hash}
                 </a>
               </div>
             )}
@@ -318,8 +338,7 @@ export default function PaymentPage() {
                 {loading ? 'Processing...' : 'Send Private Payment'}
               </button>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Note: This is a demo. Integrate with actual Unlink API in
-                production.
+                Private payment is sent via server relayer and announced on-chain.
               </p>
             </div>
           )}
