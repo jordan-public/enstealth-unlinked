@@ -25,6 +25,7 @@ export default function PaymentPage() {
   const [stealthAddress, setStealthAddress] = useState<string>('');
   const [ephemeralKey, setEphemeralKey] = useState<string>('');
   const [privateTxHash, setPrivateTxHash] = useState<`0x${string}` | ''>('');
+  const [unlinkTxHash, setUnlinkTxHash] = useState<`0x${string}` | ''>('');
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState(false);
 
@@ -54,6 +55,7 @@ export default function PaymentPage() {
     setLoading(true);
     setError('');
     setPrivateTxHash('');
+    setUnlinkTxHash('');
     // Clear previous stealth address to ensure fresh generation
     setStealthAddress('');
     setEphemeralKey('');
@@ -98,6 +100,7 @@ export default function PaymentPage() {
     setLoading(true);
     setError('');
     setPrivateTxHash('');
+    setUnlinkTxHash('');
     // Clear previous stealth address to ensure fresh generation
     setStealthAddress('');
     setEphemeralKey('');
@@ -135,6 +138,7 @@ export default function PaymentPage() {
       }
 
       setPrivateTxHash(result.hash as `0x${string}`);
+      setUnlinkTxHash((result.unlinkHash || '') as `0x${string}` | '');
       setSuccess(true);
     } catch (err: any) {
       setError(err.message || 'Payment failed');
@@ -154,6 +158,7 @@ export default function PaymentPage() {
     setStealthAddress('');
     setEphemeralKey('');
     setPrivateTxHash('');
+    setUnlinkTxHash('');
     setError('');
   };
 
@@ -198,7 +203,7 @@ export default function PaymentPage() {
             </div>
             {(hash || privateTxHash) && (
               <div>
-                <span className="font-medium">Transaction:</span>
+                <span className="font-medium">Announcement Transaction:</span>
                 <a
                   href={`https://sepolia.etherscan.io/tx/${privateTxHash || hash}`}
                   target="_blank"
@@ -207,6 +212,14 @@ export default function PaymentPage() {
                 >
                   {privateTxHash || hash}
                 </a>
+              </div>
+            )}
+            {unlinkTxHash && (
+              <div>
+                <span className="font-medium">Unlink Transfer Hash:</span>
+                <code className="block mt-1 p-2 bg-white dark:bg-gray-800 rounded break-all">
+                  {unlinkTxHash}
+                </code>
               </div>
             )}
           </div>
@@ -338,7 +351,7 @@ export default function PaymentPage() {
                 {loading ? 'Processing...' : 'Send Private Payment'}
               </button>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Private payment is sent via server relayer and announced on-chain.
+                Private payment is sent via Unlink and then announced on-chain for discovery.
               </p>
             </div>
           )}

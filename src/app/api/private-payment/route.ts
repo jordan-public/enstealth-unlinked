@@ -4,6 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 import { STEALTH_PAYMENT_ABI } from '@/lib/abi';
 import { CONTRACTS } from '@/lib/config';
+import { sendPrivateTransaction } from '@/lib/unlink';
 
 interface PrivatePaymentBody {
   recipientEnsName: string;
@@ -50,19 +51,25 @@ export async function POST(request: NextRequest) {
       transport: http(rpcUrl),
     });
 
-    const hash = await walletClient.writeContract({
+    const unlinkResult = await sendPrivateTransaction({
+      to: stealthAddress,
+      amount,
+      chainId: sepolia.id,
+    });
+
+    const announceHash = await walletClient.writeContract({
       address: CONTRACTS.STEALTH_PAYMENT as `0x${string}`,
       abi: STEALTH_PAYMENT_ABI,
-      functionName: 'sendFunds',
-      args: [recipientEnsName, ephemeralKeyBytes32, stealthAddress],
-      value: parseEther(amount),
+      functionName: 'announce',
+      args: [recipientEnsName, ephemeralKeyBytes32, stealthAddress, parseEther(amount)],
       account,
     });
 
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: announceHash });
 
     return NextResponse.json({
-      hash,
+      hash: announceHash,
+      unlinkHash: unlinkResult.txHash,
       status: receipt.status,
       blockNumber: receipt.blockNumber.toString(),
     });
