@@ -30,8 +30,15 @@ cp .env.example .env
 Edit `.env`:
 
 ```bash
-# Deployer private key (DO NOT COMMIT!)
-PRIVATE_KEY=your_private_key_here
+# FOR LOCAL TESTING (already configured, safe to use)
+PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+# FOR SEPOLIA DEPLOYMENT (use YOUR testnet key!)
+# Option 1: Mnemonic (recommended - more secure)
+SEPOLIA_MNEMONIC="your twelve word testnet mnemonic phrase here"
+
+# Option 2: Private key directly
+# SEPOLIA_PRIVATE_KEY=0xyour_actual_testnet_private_key
 
 # RPC URLs
 SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
@@ -45,6 +52,17 @@ NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
 
 # Unlink API (optional)
 UNLINK_API_KEY=your_unlink_api_key
+```
+
+**Important:** This project uses **separate keys** for local and testnet deployment:
+- `PRIVATE_KEY` = Local Anvil testing (default test key is safe)
+- `SEPOLIA_MNEMONIC` or `SEPOLIA_PRIVATE_KEY` = Real Sepolia deployment (**your key**)
+
+See [KEY_MANAGEMENT.md](KEY_MANAGEMENT.md) for detailed security guidance.
+
+**Check Your Configuration:**
+```bash
+make check-accounts
 ```
 
 ## Step 2: Install Dependencies
@@ -93,6 +111,8 @@ StealthPayment deployed at: 0x1234567890123456789012345678901234567890
 
 ### To Local Network (for development)
 
+#### Option A: Local Anvil (fresh state)
+
 ```bash
 # Terminal 1: Start local blockchain
 make anvil
@@ -100,6 +120,31 @@ make anvil
 # Terminal 2: Deploy
 make deploy-local
 ```
+
+#### Option B: Anvil Fork (with Sepolia state)
+
+**Recommended for testing** - Forks Sepolia so you get real ENS contracts and state, but can reset/iterate quickly without gas costs.
+
+```bash
+# Terminal 1: Start Anvil forking Sepolia
+make anvil-fork
+
+# Terminal 2: Deploy to the fork
+make deploy-fork
+```
+
+**Benefits:**
+- ✅ No testnet ETH needed (Anvil gives you unlimited ETH)
+- ✅ Instant transactions (no waiting for block confirmations)
+- ✅ Can reset state anytime (just restart Anvil)
+- ✅ Access real Sepolia contracts (ENS, tokens, etc.)
+- ✅ Test with realistic state without re-deploying
+
+**Usage Tips:**
+- Deploy your contracts once to the fork
+- Update `.env` with the local address: `NEXT_PUBLIC_STEALTH_PAYMENT_ADDRESS=0x...`
+- Run `pnpm dev` to test against fork
+- Restart Anvil anytime to reset state (you'll need to re-deploy)
 
 ## Step 6: Configure Frontend
 

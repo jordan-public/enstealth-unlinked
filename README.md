@@ -20,6 +20,10 @@ Privacy-focused payment system combining ENS, stealth addresses, WalletConnect, 
 
 > **Note**: This project uses **pnpm** for package management. See [PNPM.md](PNPM.md) for installation and usage.
 
+> **Local Development**: For rapid iteration without gas costs, see [LOCAL_DEV.md](LOCAL_DEV.md) to run an Anvil fork of Sepolia.
+
+> **Key Management**: Uses separate keys for local and testnet. See [KEY_MANAGEMENT.md](KEY_MANAGEMENT.md) for security best practices.
+
 ### 1. Clone Repository
 
 ```bash
@@ -108,6 +112,29 @@ make test-all
 ```
 
 See [TESTING.md](TESTING.md) for detailed testing guide.
+
+## Local Development
+
+For rapid development without testnet delays or gas costs:
+
+```bash
+# Terminal 1: Start Anvil forking Sepolia
+make anvil-fork
+
+# Terminal 2: Deploy to fork
+make deploy-fork
+
+# Terminal 3: Run frontend
+pnpm dev
+```
+
+This gives you:
+- ✅ Instant transactions
+- ✅ Real Sepolia state (ENS, etc.)
+- ✅ Unlimited test ETH
+- ✅ Ability to reset and iterate
+
+See [LOCAL_DEV.md](LOCAL_DEV.md) for complete local development guide.
 
 ## Project Structure
 

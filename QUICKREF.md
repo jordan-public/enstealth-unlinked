@@ -11,7 +11,9 @@ make test                # Run tests
 # Deployment
 make deploy              # Deploy to Sepolia
 make deploy-local        # Deploy to local network
-make anvil               # Start local blockchain
+make deploy-fork         # Deploy to Anvil fork
+make anvil               # Start local blockchain (fresh)
+make anvil-fork          # Start Anvil forking Sepolia (recommended for dev)
 
 # Frontend
 make dev                 # Start dev server (http://localhost:3000)
@@ -22,7 +24,31 @@ pnpm start              # Start production server
 forge build              # Compile contracts
 forge test -vvv         # Run tests with verbose output
 forge coverage          # Test coverage
+```Local Development Workflow
+
+**With Anvil Fork (Recommended)**:
+
+```bash
+# Terminal 1: Fork Sepolia locally
+make anvil-fork
+
+# Terminal 2: Deploy contracts
+make deploy-fork
+
+# Terminal 3: Start frontend
+pnpm dev
+
+# Connect MetaMask:
+# Network: Anvil Sepolia Fork
+# RPC: http://localhost:8545
+# Chain ID: 11155111
+# Import test account private key:
+# 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 ```
+
+See [LOCAL_DEV.md](LOCAL_DEV.md) for complete guide.
+
+## 
 
 ## API Reference
 
