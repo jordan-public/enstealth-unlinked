@@ -41,6 +41,12 @@ forge build
 forge test
 ```
 
+### 3. Run Tests
+
+```bash
+forge test
+```
+
 ### 4. Deploy Contracts
 
 ```bash
@@ -59,6 +65,38 @@ npm run dev
 ```
 
 Visit `http://localhost:3000`
+
+## Testing
+
+### Smart Contract Tests
+
+```bash
+make test
+# or
+forge test -vvv
+```
+
+### Cryptography Tests
+
+```bash
+make test-crypto
+# or
+npm test
+```
+
+The crypto tests verify the most critical functionality:
+- ✅ Stealth addresses are generated correctly
+- ✅ Private keys derived by recipients can spend from stealth addresses
+- ✅ Round-trip sender→recipient flow works perfectly
+- ✅ Privacy properties are maintained
+
+### Run All Tests
+
+```bash
+make test-all
+```
+
+See [TESTING.md](TESTING.md) for detailed testing guide.
 
 ## Project Structure
 

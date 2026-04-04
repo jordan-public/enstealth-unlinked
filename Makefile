@@ -13,6 +13,15 @@ build:
 test:
 	forge test -vvv
 
+# Run crypto tests
+test-crypto:
+	npm test
+
+# Run all tests
+test-all:
+	forge test -vvv
+	npm test
+
 # Deploy to Sepolia
 deploy:
 	@echo "Deploying to Sepolia..."
@@ -37,7 +46,9 @@ dev:
 	npm run dev
 
 # Build frontend
-build-frontend:
+build-frontend:test-crypto    - Run cryptography tests"
+	@echo "  make test-all       - Run all tests"
+	@echo "  make 
 	npm run build
 
 # Help

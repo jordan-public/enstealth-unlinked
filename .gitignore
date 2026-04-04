@@ -22,3 +22,8 @@ build/
 
 # Logs
 *.log
+
+# Tests
+coverage/
+.nyc_output/
+*.lcov
