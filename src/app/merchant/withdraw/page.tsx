@@ -1,33 +1,45 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { usePublicClient } from 'wagmi';
+import { useAccount, useSwitchChain } from 'wagmi';
 import { scanStealthPayments } from '@/lib/crypto';
-import { CONTRACTS, ENS_SUFFIX } from '@/lib/config';
+import { CONTRACTS, ENS_SUFFIX, UNLINK_PUBLIC_CONFIG } from '@/lib/config';
 import {
+  createPublicClient,
   createWalletClient,
+  erc20Abi,
   formatEther,
+  formatUnits,
   http,
   isAddress,
   keccak256,
   parseAbiItem,
+  parseEther,
   stringToHex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { sepolia } from 'viem/chains';
+import { baseSepolia, sepolia } from 'viem/chains';
 
 interface StealthPayment {
   address: string;
   privateKey: string;
   balance: bigint;
+  asset: 'ETH' | 'TOKEN';
+  assetSymbol: string;
+  decimals: number;
+  chainId: number;
+  tokenAddress?: `0x${string}`;
   ephemeralKey: string;
   sender?: string;
   blockNumber?: bigint;
   transactionHash?: string;
 }
 
+const BASE_GAS_TOP_UP_AMOUNT = parseEther('0.00005');
+
 export default function WithdrawPage() {
-  const publicClient = usePublicClient();
+  const { chain } = useAccount();
+  const { switchChain } = useSwitchChain();
   const [mounted, setMounted] = useState(false);
   const [spendPrivateKey, setSpendPrivateKey] = useState('');
   const [viewPrivateKey, setViewPrivateKey] = useState('');
@@ -38,10 +50,45 @@ export default function WithdrawPage() {
   const [payments, setPayments] = useState<StealthPayment[]>([]);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
+  const [scanRail, setScanRail] = useState<'all' | 'sepolia' | 'base'>('all');
+
+  const sepoliaClient = createPublicClient({
+    chain: sepolia,
+    transport: http(process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || 'https://rpc.sepolia.org'),
+  });
+
+  const hasTokenRail =
+    UNLINK_PUBLIC_CONFIG.enabled &&
+    Boolean(UNLINK_PUBLIC_CONFIG.tokenAddress) &&
+    isAddress(UNLINK_PUBLIC_CONFIG.tokenAddress);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const formatPaymentAmount = (payment: StealthPayment) =>
+    `${formatUnits(payment.balance, payment.decimals)} ${payment.assetSymbol}`;
+
+  const getExplorerTxUrl = (chainId: number, txHash: string) => {
+    if (chainId === baseSepolia.id) {
+      return `https://sepolia.basescan.org/tx/${txHash}`;
+    }
+    return `https://sepolia.etherscan.io/tx/${txHash}`;
+  };
+
+  const getChainLabel = (chainId: number) => {
+    if (chainId === baseSepolia.id) {
+      return 'Base Sepolia';
+    }
+    return 'Sepolia';
+  };
+
+  const selectedRailLabel =
+    scanRail === 'all'
+      ? 'Both Rails'
+      : scanRail === 'base'
+      ? 'Base Sepolia'
+      : 'Ethereum Sepolia';
 
   const handleLoadKeys = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -72,18 +119,14 @@ export default function WithdrawPage() {
     setPayments([]);
 
     try {
-      if (!publicClient) {
-        throw new Error('Public client unavailable');
-      }
-
       const normalizedMerchantName = merchantName.endsWith(ENS_SUFFIX)
         ? merchantName
         : `${merchantName}${ENS_SUFFIX}`;
       const ensNode = keccak256(stringToHex(normalizedMerchantName));
-      const currentBlock = await publicClient.getBlockNumber();
+      const currentBlock = await sepoliaClient.getBlockNumber();
       const fromBlock = currentBlock > BigInt(1000) ? currentBlock - BigInt(1000) : BigInt(0);
 
-      const logs = await publicClient.getLogs({
+      const logs = await sepoliaClient.getLogs({
         address: CONTRACTS.STEALTH_PAYMENT as `0x${string}`,
         event: parseAbiItem(
           'event StealthAnnouncement(bytes32 indexed ensNode, bytes32 ephemeralPubKey, address indexed stealthAddress, uint256 amount, address indexed sender)'
@@ -104,32 +147,118 @@ export default function WithdrawPage() {
         return;
       }
 
-      const scanned = scanStealthPayments(
-        viewPrivateKey,
-        spendPrivateKey,
-        keysList
-      );
+      const matchedStealthPayments = logs
+        .map((log) => {
+          const ephemeralPubKey = log.args.ephemeralPubKey;
+          const announcedStealthAddress = log.args.stealthAddress;
 
-      const paymentsWithBalances = await Promise.all(
-        scanned.map(async (payment, index) => {
-          const balance = await publicClient.getBalance({
+          if (!ephemeralPubKey || !announcedStealthAddress) {
+            return null;
+          }
+
+          const candidates = scanStealthPayments(viewPrivateKey, spendPrivateKey, [ephemeralPubKey]);
+          const match = candidates.find(
+            (candidate) =>
+              candidate.address.toLowerCase() === announcedStealthAddress.toLowerCase()
+          );
+
+          if (!match) {
+            return null;
+          }
+
+          return {
+            payment: match,
+            eventMeta: log,
+            ephemeralPubKey,
+          };
+        })
+        .filter((value): value is NonNullable<typeof value> => value !== null);
+
+      if (matchedStealthPayments.length === 0) {
+        setError(
+          'Announcements were found, but the provided spend/view private keys did not match any announced stealth addresses.'
+        );
+        return;
+      }
+
+      const baseClient = hasTokenRail
+        ? createPublicClient({
+            chain: baseSepolia,
+            transport: http(UNLINK_PUBLIC_CONFIG.rpcUrl),
+          })
+        : null;
+
+      const tokenAddress = hasTokenRail
+        ? (UNLINK_PUBLIC_CONFIG.tokenAddress as `0x${string}`)
+        : undefined;
+
+      const discovered = await Promise.all(
+        matchedStealthPayments.map(async ({ payment, eventMeta, ephemeralPubKey }) => {
+
+          const ethBalance = await sepoliaClient.getBalance({
             address: payment.address as `0x${string}`,
           });
-          return {
-            ...payment,
-            balance: balance || BigInt(0),
-            ephemeralKey: keysList[index],
-            sender: logs[index]?.args.sender,
-            transactionHash: logs[index]?.transactionHash,
-            blockNumber: logs[index]?.blockNumber,
-          };
+
+          const results: StealthPayment[] = [];
+
+          if ((scanRail === 'all' || scanRail === 'sepolia') && ethBalance > BigInt(0)) {
+            results.push({
+              ...payment,
+              balance: ethBalance,
+              asset: 'ETH',
+              assetSymbol: 'ETH',
+              decimals: 18,
+              chainId: sepolia.id,
+              ephemeralKey: ephemeralPubKey,
+              sender: eventMeta?.args.sender,
+              transactionHash: eventMeta?.transactionHash,
+              blockNumber: eventMeta?.blockNumber,
+            });
+          }
+
+          if ((scanRail === 'all' || scanRail === 'base') && baseClient && tokenAddress) {
+            const tokenBalance = await baseClient.readContract({
+              address: tokenAddress,
+              abi: erc20Abi,
+              functionName: 'balanceOf',
+              args: [payment.address as `0x${string}`],
+            });
+
+            if (tokenBalance > BigInt(0)) {
+              results.push({
+                ...payment,
+                balance: tokenBalance,
+                asset: 'TOKEN',
+                assetSymbol: UNLINK_PUBLIC_CONFIG.tokenSymbol,
+                decimals: UNLINK_PUBLIC_CONFIG.tokenDecimals,
+                chainId: baseSepolia.id,
+                tokenAddress,
+                ephemeralKey: ephemeralPubKey,
+                sender: eventMeta?.args.sender,
+                transactionHash: eventMeta?.transactionHash,
+                blockNumber: eventMeta?.blockNumber,
+              });
+            }
+          }
+
+          return results;
         })
       );
 
-      const nonZero = paymentsWithBalances.filter((p) => p.balance > BigInt(0));
+      const flattened = discovered.flat();
+      const deduped = new Map<string, StealthPayment>();
+      for (const payment of flattened) {
+        const key = `${payment.asset}:${payment.address.toLowerCase()}`;
+        const existing = deduped.get(key);
+        if (!existing || payment.balance > existing.balance) {
+          deduped.set(key, payment);
+        }
+      }
+
+      const nonZero = Array.from(deduped.values());
       
       if (nonZero.length === 0) {
-        setError('No payments found with balance. The ephemeral keys might be incorrect or funds already withdrawn.');
+        setError(`No payments found with balance on ${selectedRailLabel}.`);
       } else {
         setPayments(nonZero);
       }
@@ -138,10 +267,12 @@ export default function WithdrawPage() {
       const isRpcOrNetworkError =
         message.includes('Failed to fetch') ||
         message.includes('HTTP request failed') ||
-        message.includes('eth_blockNumber');
+        message.includes('eth_blockNumber') ||
+        message.includes('rpc') ||
+        message.includes('network');
 
       if (isRpcOrNetworkError) {
-        setError('No payments received.');
+        setError(`Scan RPC failed while reading Sepolia or Base Sepolia: ${message}`);
       } else {
         setError(err.message || 'Failed to scan for payments');
       }
@@ -150,39 +281,34 @@ export default function WithdrawPage() {
     }
   };
 
-  const handleWithdraw = async (payment: StealthPayment) => {
-    if (!publicClient) {
-      setError('Public client unavailable');
-      return;
-    }
-
+  const withdrawSinglePayment = async (payment: StealthPayment): Promise<string> => {
     if (!isAddress(destinationAddress)) {
-      setError('Please enter a valid destination Ethereum address');
-      return;
+      throw new Error('Please enter a valid destination Ethereum address');
     }
 
-    setLoading(true);
-    setError('');
-    setStatus('Preparing withdrawal transaction...');
+    const account = privateKeyToAccount(payment.privateKey as `0x${string}`);
 
-    try {
-      const account = privateKeyToAccount(payment.privateKey as `0x${string}`);
+    if (payment.asset === 'ETH') {
+      const sepoliaClientForWithdraw = createPublicClient({
+        chain: sepolia,
+        transport: http(process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || 'https://rpc.sepolia.org'),
+      });
+
       const walletClient = createWalletClient({
         account,
         chain: sepolia,
         transport: http(),
       });
 
-      const gasPrice = await publicClient.getGasPrice();
+      const gasPrice = await sepoliaClientForWithdraw.getGasPrice();
       const gasLimit = BigInt(21000);
       const fee = gasPrice * gasLimit;
 
       if (payment.balance <= fee) {
-        throw new Error('Balance too low to cover network fee for this stealth address');
+        throw new Error(`Balance too low to cover network fee for ${payment.address}`);
       }
 
       const value = payment.balance - fee;
-      setStatus(`Sending ${formatEther(value)} ETH to ${destinationAddress}...`);
 
       const hash = await walletClient.sendTransaction({
         to: destinationAddress as `0x${string}`,
@@ -191,10 +317,92 @@ export default function WithdrawPage() {
         gasPrice,
       });
 
-      setStatus('Waiting for confirmation...');
-      await publicClient.waitForTransactionReceipt({ hash });
+      await sepoliaClientForWithdraw.waitForTransactionReceipt({ hash });
+      return hash;
+    }
 
-      setPayments((prev) => prev.filter((p) => p.address !== payment.address));
+    if (!payment.tokenAddress) {
+      throw new Error('Token payment missing token address');
+    }
+
+    const baseClient = createPublicClient({
+      chain: baseSepolia,
+      transport: http(UNLINK_PUBLIC_CONFIG.rpcUrl),
+    });
+
+    let baseNativeBalance = await baseClient.getBalance({
+      address: payment.address as `0x${string}`,
+    });
+
+    if (baseNativeBalance < BASE_GAS_TOP_UP_AMOUNT) {
+      const topUpResponse = await fetch('/api/base-gas-topup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          address: payment.address,
+          amountWei: BASE_GAS_TOP_UP_AMOUNT.toString(),
+        }),
+      });
+
+      const topUpResult = await topUpResponse.json();
+
+      if (!topUpResponse.ok) {
+        throw new Error(topUpResult.error || 'Automatic Base gas top-up failed.');
+      }
+
+      await baseClient.waitForTransactionReceipt({ hash: topUpResult.hash as `0x${string}` });
+      baseNativeBalance = await baseClient.getBalance({
+        address: payment.address as `0x${string}`,
+      });
+
+      if (baseNativeBalance < BASE_GAS_TOP_UP_AMOUNT) {
+        throw new Error(
+          `Automatic Base Sepolia gas top-up did not arrive for ${payment.address}.`
+        );
+      }
+    }
+
+    const tokenWalletClient = createWalletClient({
+      account,
+      chain: baseSepolia,
+      transport: http(UNLINK_PUBLIC_CONFIG.rpcUrl),
+    });
+
+    const hash = await tokenWalletClient.writeContract({
+      address: payment.tokenAddress,
+      abi: erc20Abi,
+      functionName: 'transfer',
+      args: [destinationAddress as `0x${string}`, payment.balance],
+      account,
+    });
+
+    await baseClient.waitForTransactionReceipt({ hash });
+    return hash;
+  };
+
+  const handleWithdraw = async (payment: StealthPayment) => {
+    setLoading(true);
+    setError('');
+    setStatus('Preparing withdrawal transaction...');
+
+    try {
+      setStatus(`Sending ${formatPaymentAmount(payment)} to ${destinationAddress}...`);
+
+      const hash = await withdrawSinglePayment(payment);
+
+      setStatus('Waiting for confirmation...');
+      setPayments((prev) =>
+        prev.filter(
+          (p) =>
+            !(
+              p.address.toLowerCase() === payment.address.toLowerCase() &&
+              p.asset === payment.asset &&
+              p.chainId === payment.chainId
+            )
+        )
+      );
       setStatus(`Withdrawal confirmed: ${hash}`);
     } catch (err: any) {
       setError(err.message || 'Withdrawal failed');
@@ -205,11 +413,6 @@ export default function WithdrawPage() {
   };
 
   const handleWithdrawAll = async () => {
-    if (!publicClient) {
-      setError('Public client unavailable');
-      return;
-    }
-
     if (!isAddress(destinationAddress)) {
       setError('Please enter a valid destination Ethereum address');
       return;
@@ -227,32 +430,11 @@ export default function WithdrawPage() {
     try {
       for (const payment of payments) {
         try {
-          const account = privateKeyToAccount(payment.privateKey as `0x${string}`);
-          const walletClient = createWalletClient({
-            account,
-            chain: sepolia,
-            transport: http(),
-          });
+          setStatus(
+            `Withdrawing payment ${completed + 1}/${payments.length}: ${formatPaymentAmount(payment)}...`
+          );
 
-          const gasPrice = await publicClient.getGasPrice();
-          const gasLimit = BigInt(21000);
-          const fee = gasPrice * gasLimit;
-
-          if (payment.balance <= fee) {
-            continue;
-          }
-
-          const value = payment.balance - fee;
-          setStatus(`Withdrawing payment ${completed + 1}/${payments.length}...`);
-
-          const hash = await walletClient.sendTransaction({
-            to: destinationAddress as `0x${string}`,
-            value,
-            gas: gasLimit,
-            gasPrice,
-          });
-
-          await publicClient.waitForTransactionReceipt({ hash });
+          await withdrawSinglePayment(payment);
           completed += 1;
         } catch {
           // Continue with the next stealth address
@@ -348,8 +530,52 @@ export default function WithdrawPage() {
         <div className="border rounded-lg p-6">
           <h2 className="text-xl font-semibold mb-4">Step 2: Scan for Payments</h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            This scans recent stealth payment announcements for your merchant ENS name.
+            This scans recent stealth payment announcements and checks both ETH (Sepolia)
+            and token balances (Base Sepolia, when configured).
           </p>
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">
+              Wallet network: {chain?.id === baseSepolia.id ? 'Base Sepolia' : chain?.id === sepolia.id ? 'Ethereum Sepolia' : `Chain ${chain?.id ?? 'Unknown'}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => switchChain({ chainId: sepolia.id })}
+              className="px-3 py-1 text-xs rounded-md bg-yellow-600 text-white hover:bg-yellow-700"
+            >
+              Switch to Ethereum Sepolia
+            </button>
+            <button
+              type="button"
+              onClick={() => switchChain({ chainId: baseSepolia.id })}
+              className="px-3 py-1 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+            >
+              Switch to Base Sepolia
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">Scan rail:</span>
+            <button
+              type="button"
+              onClick={() => setScanRail('all')}
+              className={`px-3 py-1 text-xs rounded-md ${scanRail === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
+            >
+              Both
+            </button>
+            <button
+              type="button"
+              onClick={() => setScanRail('sepolia')}
+              className={`px-3 py-1 text-xs rounded-md ${scanRail === 'sepolia' ? 'bg-yellow-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
+            >
+              Ethereum Sepolia
+            </button>
+            <button
+              type="button"
+              onClick={() => setScanRail('base')}
+              className={`px-3 py-1 text-xs rounded-md ${scanRail === 'base' ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
+            >
+              Base Sepolia
+            </button>
+          </div>
           <button
             onClick={handleScan}
             disabled={scanning || !merchantName || !viewPrivateKey || !spendPrivateKey}
@@ -372,6 +598,10 @@ export default function WithdrawPage() {
               {payments.length !== 1 ? 's' : ''} found)
             </h2>
 
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Showing results for: <strong>{selectedRailLabel}</strong>
+            </p>
+
             <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
               <label className="block text-sm font-medium mb-2 text-blue-900 dark:text-blue-200">
                 Destination Address
@@ -384,7 +614,7 @@ export default function WithdrawPage() {
                 className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
               />
               <p className="text-xs text-blue-800 dark:text-blue-300 mt-2">
-                Funds from all discovered stealth addresses will be sent here.
+                Funds from all discovered stealth addresses and rails will be sent here.
               </p>
               <button
                 onClick={handleWithdrawAll}
@@ -396,15 +626,17 @@ export default function WithdrawPage() {
             </div>
 
             <div className="space-y-4">
-              {payments.map((payment, index) => (
+              {payments
+                .filter((payment) => payment.chainId === sepolia.id)
+                .map((payment, index) => (
                 <div key={index} className="border border-green-500 rounded-lg p-6 bg-green-50 dark:bg-green-900/20">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
                       <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
-                        Payment #{index + 1}
+                        Payment #{index + 1} • {payment.asset} • {getChainLabel(payment.chainId)}
                       </div>
                       <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                        {formatEther(payment.balance)} ETH
+                        {formatPaymentAmount(payment)}
                       </div>
                     </div>
                   </div>
@@ -455,7 +687,7 @@ export default function WithdrawPage() {
                               🔗 TX HASH
                             </div>
                             <a
-                              href={`https://sepolia.etherscan.io/tx/${payment.transactionHash}`}
+                              href={getExplorerTxUrl(payment.chainId, payment.transactionHash)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-xs text-blue-600 dark:text-blue-400 hover:underline break-all"
@@ -473,7 +705,95 @@ export default function WithdrawPage() {
                     disabled={loading || !isAddress(destinationAddress)}
                     className="w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    💸 Withdraw {formatEther(payment.balance)} ETH
+                    💸 Withdraw {formatPaymentAmount(payment)}
+                  </button>
+                </div>
+              ))}
+
+              {payments.filter((payment) => payment.chainId === baseSepolia.id).length > 0 && (
+                <h3 className="text-lg font-semibold pt-2">Base Sepolia Assets</h3>
+              )}
+
+              {payments
+                .filter((payment) => payment.chainId === baseSepolia.id)
+                .map((payment, index) => (
+                <div key={`base-${index}`} className="border border-indigo-500 rounded-lg p-6 bg-indigo-50 dark:bg-indigo-900/20">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex-1">
+                      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+                        Payment #{index + 1} • {payment.asset} • {getChainLabel(payment.chainId)}
+                      </div>
+                      <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                        {formatPaymentAmount(payment)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 mb-4">
+                    <div>
+                      <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                        🎯 STEALTH ADDRESS
+                      </div>
+                      <code className="text-sm break-all bg-white dark:bg-gray-800 px-2 py-1 rounded border">
+                        {payment.address}
+                      </code>
+                    </div>
+
+                    <div>
+                      <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                        🔑 EPHEMERAL KEY (R)
+                      </div>
+                      <code className="text-xs break-all bg-white dark:bg-gray-800 px-2 py-1 rounded border">
+                        {payment.ephemeralKey}
+                      </code>
+                    </div>
+
+                    {payment.sender && (
+                      <div>
+                        <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                          👤 SENDER
+                        </div>
+                        <code className="text-xs bg-white dark:bg-gray-800 px-2 py-1 rounded border">
+                          {payment.sender}
+                        </code>
+                      </div>
+                    )}
+
+                    {payment.blockNumber && (
+                      <div className="flex gap-4">
+                        <div>
+                          <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                            📦 BLOCK
+                          </div>
+                          <code className="text-xs bg-white dark:bg-gray-800 px-2 py-1 rounded border">
+                            {payment.blockNumber.toString()}
+                          </code>
+                        </div>
+                        {payment.transactionHash && (
+                          <div className="flex-1">
+                            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                              🔗 TX HASH
+                            </div>
+                            <a
+                              href={getExplorerTxUrl(payment.chainId, payment.transactionHash)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 dark:text-blue-400 hover:underline break-all"
+                            >
+                              {payment.transactionHash.slice(0, 10)}...{payment.transactionHash.slice(-8)}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => handleWithdraw(payment)}
+                    disabled={loading || !isAddress(destinationAddress)}
+                    className="w-full px-6 py-3 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    💸 Withdraw {formatPaymentAmount(payment)}
                   </button>
                 </div>
               ))}
@@ -485,16 +805,26 @@ export default function WithdrawPage() {
                   <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
                     Total Funds Available
                   </p>
-                  <p className="text-4xl font-bold text-green-600 dark:text-green-400">
-                    {formatEther(
-                      payments.reduce((sum, p) => sum + p.balance, BigInt(0))
-                    )}{' '}
-                    ETH
-                  </p>
+                  <div className="text-lg font-bold text-green-600 dark:text-green-400 space-y-1">
+                    {Object.entries(
+                      payments.reduce((acc, p) => {
+                        const current = acc[p.assetSymbol] || BigInt(0);
+                        return { ...acc, [p.assetSymbol]: current + p.balance };
+                      }, {} as Record<string, bigint>)
+                    ).map(([symbol, total]) => (
+                      <p key={symbol}>
+                        {formatUnits(
+                          total,
+                          payments.find((p) => p.assetSymbol === symbol)?.decimals || 18
+                        )}{' '}
+                        {symbol}
+                      </p>
+                    ))}
+                  </div>
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Across {payments.length} stealth address{payments.length !== 1 ? 'es' : ''}
+                    Across {payments.length} discovered asset position{payments.length !== 1 ? 's' : ''}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
                     🔒 Privacy preserved
@@ -512,10 +842,10 @@ export default function WithdrawPage() {
               <strong>Step 1:</strong> Load your merchant private keys (spend + view keys)
             </p>
             <p>
-              <strong>Step 2:</strong> Scan recent on-chain announcements for your merchant ENS name
+              <strong>Step 2:</strong> Scan recent on-chain announcements and resolve stealth balances across both rails
             </p>
             <p>
-              <strong>Step 3:</strong> Withdrawal derives stealth private keys and signs transfers directly in-browser
+              <strong>Step 3:</strong> Withdrawal derives stealth private keys and signs ETH or token transfers directly in-browser
             </p>
             <p>
               <strong>Recipient match:</strong> Payments and withdrawals must use the same full ENS name, e.g. merchant.enstealth.eth

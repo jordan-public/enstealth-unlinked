@@ -32,6 +32,19 @@ export const CHAIN_CONFIG = {
 
 // Unlink API configuration (placeholder - adjust based on actual Unlink SDK)
 export const UNLINK_CONFIG = {
-  apiUrl: process.env.NEXT_PUBLIC_UNLINK_API_URL || 'https://api.unlink.network',
+  apiUrl: process.env.NEXT_PUBLIC_UNLINK_API_URL || 'https://staging-api.unlink.xyz',
   apiKey: process.env.UNLINK_API_KEY,
+  useSdk: process.env.UNLINK_USE_SDK === 'true',
+  chainId: 84532,
+  tokenAddress: process.env.UNLINK_TOKEN_ADDRESS,
+  tokenDecimals: Number(process.env.UNLINK_TOKEN_DECIMALS || '18'),
+};
+
+export const UNLINK_PUBLIC_CONFIG = {
+  enabled: process.env.NEXT_PUBLIC_UNLINK_ENABLED === 'true',
+  chainId: Number(process.env.NEXT_PUBLIC_UNLINK_CHAIN_ID || '84532'),
+  rpcUrl: process.env.NEXT_PUBLIC_UNLINK_RPC_URL || 'https://sepolia.base.org',
+  tokenAddress: process.env.NEXT_PUBLIC_UNLINK_TOKEN_ADDRESS || '',
+  tokenDecimals: Number(process.env.NEXT_PUBLIC_UNLINK_TOKEN_DECIMALS || '18'),
+  tokenSymbol: process.env.NEXT_PUBLIC_UNLINK_TOKEN_SYMBOL || 'TOKEN',
 };

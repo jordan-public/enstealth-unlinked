@@ -4,9 +4,18 @@ import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useConnect, useReadContract } from 'wagmi';
 import { parseEther } from 'viem';
+import { sepolia } from 'wagmi/chains';
 import { deriveStealthAddress } from '@/lib/crypto';
 import { CONTRACTS, ENS_SUFFIX } from '@/lib/config';
 import { STEALTH_PAYMENT_ABI, ENS_REGISTRAR_ABI } from '@/lib/abi';
+
+interface PrivatePaymentStatus {
+  sdkConfigured: boolean;
+  mode: string;
+  rail: string;
+  dryRunEnabled: boolean;
+  missingUnlinkConfig: string[];
+}
 
 export default function PaymentPage() {
   const params = useParams();
@@ -25,15 +34,27 @@ export default function PaymentPage() {
   const [stealthAddress, setStealthAddress] = useState<string>('');
   const [ephemeralKey, setEphemeralKey] = useState<string>('');
   const [privateTxHash, setPrivateTxHash] = useState<`0x${string}` | ''>('');
-  const [unlinkTxHash, setUnlinkTxHash] = useState<`0x${string}` | ''>('');
+  const [unlinkTxId, setUnlinkTxId] = useState<string>('');
+  const [unlinkStatus, setUnlinkStatus] = useState<string>('');
+  const [privateRail, setPrivateRail] = useState<string>('');
+  const [simulatedPayment, setSimulatedPayment] = useState(false);
+  const [privatePaymentStatus, setPrivatePaymentStatus] = useState<PrivatePaymentStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState(false);
+  const unlinkTokenSymbol = process.env.NEXT_PUBLIC_UNLINK_TOKEN_SYMBOL || 'TOKEN';
+  const unlinkEnabled = process.env.NEXT_PUBLIC_UNLINK_ENABLED === 'true';
+  const unlinkTokenAddress = process.env.NEXT_PUBLIC_UNLINK_TOKEN_ADDRESS || '';
+  const dryRunEnabled = process.env.NEXT_PUBLIC_PRIVATE_PAYMENT_DRY_RUN === 'true';
+  const unlinkPublicReady = unlinkEnabled && unlinkTokenAddress.length === 42;
+  const amountUnit = paymentMethod === 'walletconnect' ? 'ETH' : unlinkTokenSymbol;
 
   const { data: contractKeys, isLoading: keysLoading, isError: keysError } = useReadContract({
     address: CONTRACTS.ENS_REGISTRAR as `0x${string}`,
     abi: ENS_REGISTRAR_ABI,
     functionName: 'getPublicKeys',
     args: [merchantName],
+    chainId: sepolia.id,
   });
 
   const { writeContract, data: hash } = useWriteContract();
@@ -46,6 +67,28 @@ export default function PaymentPage() {
     setMounted(true);
   }, []);
 
+  const loadPrivatePaymentStatus = async () => {
+    setStatusLoading(true);
+    try {
+      const response = await fetch('/api/private-payment-status', { cache: 'no-store' });
+      if (!response.ok) {
+        return;
+      }
+      const data = (await response.json()) as PrivatePaymentStatus;
+      setPrivatePaymentStatus(data);
+    } catch {
+      // Keep UI functional if status endpoint is unavailable.
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (paymentMethod === 'unlink') {
+      void loadPrivatePaymentStatus();
+    }
+  }, [paymentMethod]);
+
   const handlePayWalletConnect = async () => {
     if (!contractKeys) {
       setError('Could not load merchant ENS keys');
@@ -55,7 +98,10 @@ export default function PaymentPage() {
     setLoading(true);
     setError('');
     setPrivateTxHash('');
-    setUnlinkTxHash('');
+    setUnlinkTxId('');
+    setUnlinkStatus('');
+    setPrivateRail('');
+    setSimulatedPayment(false);
     // Clear previous stealth address to ensure fresh generation
     setStealthAddress('');
     setEphemeralKey('');
@@ -100,7 +146,10 @@ export default function PaymentPage() {
     setLoading(true);
     setError('');
     setPrivateTxHash('');
-    setUnlinkTxHash('');
+    setUnlinkTxId('');
+    setUnlinkStatus('');
+    setPrivateRail('');
+    setSimulatedPayment(false);
     // Clear previous stealth address to ensure fresh generation
     setStealthAddress('');
     setEphemeralKey('');
@@ -129,6 +178,7 @@ export default function PaymentPage() {
           ephemeralKeyBytes32,
           stealthAddress: stealth.address,
           amount,
+          dryRun: dryRunEnabled,
         }),
       });
 
@@ -137,8 +187,11 @@ export default function PaymentPage() {
         throw new Error(result.error || 'Private payment failed');
       }
 
-      setPrivateTxHash(result.hash as `0x${string}`);
-      setUnlinkTxHash((result.unlinkHash || '') as `0x${string}` | '');
+      setPrivateTxHash((result.hash || '') as `0x${string}` | '');
+      setUnlinkTxId(result.unlinkTxId || '');
+      setUnlinkStatus(result.unlinkStatus || result.mode || '');
+      setPrivateRail(result.rail || result.mode || '');
+      setSimulatedPayment(result.simulated === true);
       setSuccess(true);
     } catch (err: any) {
       setError(err.message || 'Payment failed');
@@ -158,7 +211,10 @@ export default function PaymentPage() {
     setStealthAddress('');
     setEphemeralKey('');
     setPrivateTxHash('');
-    setUnlinkTxHash('');
+    setUnlinkTxId('');
+    setUnlinkStatus('');
+    setPrivateRail('');
+    setSimulatedPayment(false);
     setError('');
   };
 
@@ -190,6 +246,20 @@ export default function PaymentPage() {
           <h2 className="text-xl font-semibold mb-4 text-green-800 dark:text-green-200">
             ✅ Payment Sent!
           </h2>
+          {paymentMethod === 'unlink' ? (
+            <div className="mb-4 rounded-md border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-2 text-xs text-indigo-900 dark:text-indigo-200">
+              <strong>Rail confirmation:</strong> Unlink token transfer runs on <strong>Base Sepolia</strong> and the stealth announcement is recorded on <strong>Ethereum Sepolia</strong>.
+            </div>
+          ) : (
+            <div className="mb-4 rounded-md border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/30 px-3 py-2 text-xs text-blue-900 dark:text-blue-200">
+              <strong>Rail confirmation:</strong> ETH transfer and stealth announcement are both on <strong>Ethereum Sepolia</strong>.
+            </div>
+          )}
+          {simulatedPayment && (
+            <div className="mb-4 inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 px-3 py-1 text-xs font-semibold text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+              Simulated only - not broadcast on-chain
+            </div>
+          )}
           
           <div className="space-y-2 text-sm">
             <div>
@@ -199,7 +269,7 @@ export default function PaymentPage() {
               </code>
             </div>
             <div>
-              <span className="font-medium">Amount:</span> {amount} ETH
+              <span className="font-medium">Amount:</span> {amount} {amountUnit}
             </div>
             {(hash || privateTxHash) && (
               <div>
@@ -214,12 +284,27 @@ export default function PaymentPage() {
                 </a>
               </div>
             )}
-            {unlinkTxHash && (
+            {paymentMethod === 'unlink' && (
+              <div className="text-xs text-gray-700 dark:text-gray-300">
+                Note: the announcement tx above is Sepolia-only metadata; token movement happens on Base Sepolia via Unlink.
+              </div>
+            )}
+            {unlinkTxId && (
               <div>
-                <span className="font-medium">Unlink Transfer Hash:</span>
+                <span className="font-medium">Unlink Transaction ID:</span>
                 <code className="block mt-1 p-2 bg-white dark:bg-gray-800 rounded break-all">
-                  {unlinkTxHash}
+                  {unlinkTxId}
                 </code>
+              </div>
+            )}
+            {unlinkStatus && (
+              <div>
+                <span className="font-medium">Private Transfer Status:</span> {unlinkStatus}
+              </div>
+            )}
+            {privateRail && (
+              <div>
+                <span className="font-medium">Payment Rail:</span> {privateRail}
               </div>
             )}
           </div>
@@ -237,7 +322,7 @@ export default function PaymentPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  Amount (ETH)
+                  Amount ({amountUnit})
                 </label>
                 <input
                   type="number"
@@ -284,6 +369,60 @@ export default function PaymentPage() {
                     </div>
                   </button>
                 </div>
+              </div>
+
+              <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-sm font-medium">Rail Status</div>
+                  {paymentMethod === 'unlink' && (
+                    <button
+                      type="button"
+                      onClick={() => void loadPrivatePaymentStatus()}
+                      disabled={statusLoading}
+                      className="text-xs px-2 py-1 rounded border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {statusLoading ? 'Refreshing...' : 'Refresh Status'}
+                    </button>
+                  )}
+                </div>
+                {paymentMethod === 'walletconnect' ? (
+                  <p className="text-xs text-gray-700 dark:text-gray-300">
+                    Direct wallet flow. Your connected wallet signs and sends an ETH stealth payment transaction.
+                  </p>
+                ) : (
+                  <div className="space-y-1 text-xs text-gray-700 dark:text-gray-300">
+                    <p>
+                      Target private unit: {unlinkTokenSymbol}
+                    </p>
+                    <p>
+                      Public rail config: {unlinkPublicReady ? 'ready' : 'incomplete'}
+                    </p>
+                    <p>
+                      Safety mode (no broadcast): {dryRunEnabled ? 'enabled' : 'disabled'}
+                    </p>
+                    <p>
+                      Server rail status:{' '}
+                      {privatePaymentStatus
+                        ? `${privatePaymentStatus.mode} (${privatePaymentStatus.rail})`
+                        : statusLoading
+                        ? 'loading...'
+                        : 'unavailable'}
+                    </p>
+                    {privatePaymentStatus && privatePaymentStatus.missingUnlinkConfig.length > 0 && (
+                      <p>
+                        Missing server config: {privatePaymentStatus.missingUnlinkConfig.join(', ')}
+                      </p>
+                    )}
+                    {privatePaymentStatus && privatePaymentStatus.dryRunEnabled && (
+                      <p>
+                        Server no-broadcast: enabled
+                      </p>
+                    )}
+                    <p>
+                      Server behavior: uses only Unlink token rail; if config is missing, payment is blocked.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -345,14 +484,25 @@ export default function PaymentPage() {
               </p>
               <button
                 onClick={handlePayUnlink}
-                disabled={loading || keysLoading || !amount || !contractKeys}
+                disabled={
+                  loading ||
+                  keysLoading ||
+                  !amount ||
+                  !contractKeys ||
+                  (privatePaymentStatus !== null && !privatePaymentStatus.sdkConfigured)
+                }
                 className="w-full px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Processing...' : 'Send Private Payment'}
               </button>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Private payment is sent via Unlink and then announced on-chain for discovery.
+                Private payment requires Unlink SDK configuration and uses Base Sepolia token rail only.
               </p>
+              {privatePaymentStatus && !privatePaymentStatus.sdkConfigured && (
+                <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                  Unlink is currently blocked. Missing config: {privatePaymentStatus.missingUnlinkConfig.join(', ')}
+                </p>
+              )}
             </div>
           )}
 

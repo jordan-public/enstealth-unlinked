@@ -11,36 +11,39 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "unlink:faucet": "node --env-file=.env scripts/unlink-faucet.mjs",
+    "unlink:faucet:private": "node --env-file=.env scripts/unlink-faucet.mjs --private",
     "contract:build": "forge build",
     "contract:test": "forge test",
     "contract:deploy": "forge script script/Deploy.s.sol:DeployScript --rpc-url sepolia --broadcast"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.17.0",
+    "@unlink-xyz/sdk": "0.1.0-canary.1",
+    "bn.js": "^5.2.1",
+    "elliptic": "^6.5.4",
+    "ethers": "^6.10.0",
+    "keccak": "^3.0.4",
     "next": "^14.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "@tanstack/react-query": "^5.17.0",
     "viem": "^2.7.0",
-    "wagmi": "^2.5.0",
-    "ethers": "^6.10.0",
-    "elliptic": "^6.5.4",
-    "bn.js": "^5.2.1",
-    "keccak": "^3.0.4"
+    "wagmi": "^2.5.0"
   },
   "devDependencies": {
+    "@types/bn.js": "^5.1.5",
+    "@types/elliptic": "^6.4.18",
+    "@types/jest": "^29.5.0",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "@types/elliptic": "^6.4.18",
-    "@types/bn.js": "^5.1.5",
-    "@types/jest": "^29.5.0",
-    "typescript": "^5.3.0",
     "autoprefixer": "^10.4.17",
-    "postcss": "^8.4.33",
-    "tailwindcss": "^3.4.1",
     "jest": "^29.5.0",
     "jest-environment-node": "^29.5.0",
+    "postcss": "^8.4.33",
+    "tailwindcss": "^3.4.1",
     "ts-jest": "^29.1.0",
-    "ts-node": "^10.9.1"
+    "ts-node": "^10.9.1",
+    "typescript": "^5.3.0"
   }
 }

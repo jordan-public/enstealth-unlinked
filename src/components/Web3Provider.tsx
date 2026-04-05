@@ -1,12 +1,12 @@
 'use client';
 
 import { WagmiProvider, createConfig, http } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
+import { sepolia, baseSepolia } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { injected, walletConnect } from 'wagmi/connectors';
 
 const config = createConfig({
-  chains: [sepolia],
+  chains: [sepolia, baseSepolia],
   connectors: [
     injected(),
     walletConnect({
@@ -15,6 +15,7 @@ const config = createConfig({
   ],
   transports: {
     [sepolia.id]: http(),
+    [baseSepolia.id]: http('https://sepolia.base.org'),
   },
 });
 
