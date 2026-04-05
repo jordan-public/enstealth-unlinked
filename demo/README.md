@@ -1,6 +1,6 @@
 # Demo and Video
 
-## The demo video is available [here](./ENStealth%20Unlinked%20-%20HD%201080p.mov) and on [YouTube](https://youtu.be/xowNmEUlfrQ).
+## The demo video is available [here](./ENStealth%20Unlinked%20-%20HD%201080p.mov) and on [YouTube](https://youtu.be/saKXMF9nNiI).
 
 ## Demo Instructions
 
